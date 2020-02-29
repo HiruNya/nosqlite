@@ -1,0 +1,10 @@
+[package]
+name = "nosquirrelite"
+version = "0.1.0"
+authors = ["Hiruna Kethaka Jayamanne <hirunav2@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+rusqlite = { version = "0.21", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
