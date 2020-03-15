@@ -80,6 +80,20 @@ impl <I: FromSql + ToSql> Table<I> {
 	pub fn get(&self, id: I) -> Get<I> { Get { id, data_key: &self.data, id_key: &self.id, table: &self.name } }
 }
 
+fn format_key(key: &str) -> Option<String> {
+	let mut chars = key.chars();
+	let mut prepend = String::with_capacity(2+key.len());
+	if chars.next() != Some('$') {
+		prepend.push('$');
+		let c = chars.next();
+		if c != Some('.') && c.is_some() {
+			prepend.push('.');
+		}
+	}
+	prepend.push_str(key);
+	Some(prepend)
+}
+
 pub struct Get<'a, I: FromSql + ToSql> {
 	data_key: &'a str,
 	id: I,
@@ -101,9 +115,17 @@ impl<'a, I: FromSql + ToSql> Get<'a, I> {
 			|row| Ok(Entry { id: row.get(0)?, data: row.get(1)? })
 		).optional()
 	}
-	pub fn id<T: DeserializeOwned, C: AsRef<SqliteConnection>>(&self, connection: C) -> SqliteResult<Option<I>> {
+	pub fn id<C: AsRef<SqliteConnection>>(&self, connection: C) -> SqliteResult<Option<I>> {
 		connection.as_ref().query_row(
 			&format!("SELECT {} FROM {} WHERE {} = ?", self.data_key, self.table, self.id_key),
+			&[&self.id],
+			|row| row.get(0)
+		).optional()
+	}
+	pub fn key<T: FromSql, C: AsRef<SqliteConnection>>(&self, key: &str, connection: C) -> SqliteResult<Option<T>> {
+		let key = format_key(key).unwrap();
+		connection.as_ref().query_row(
+			&format!("SELECT json_extract({}, \"{}\") FROM {} WHERE {} = ?", self.data_key, key, self.table, self.id_key),
 			&[&self.id],
 			|row| row.get(0)
 		).optional()
