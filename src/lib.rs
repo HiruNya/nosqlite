@@ -1,6 +1,8 @@
-use rusqlite::{Connection as SqliteConnection, NO_PARAMS, OptionalExtension,
-               Result as SqliteResult, types::{FromSql, FromSqlError, FromSqlResult, ToSql, ValueRef}};
-use serde::{Deserialize, de::DeserializeOwned};
+use rusqlite::{Connection as SqliteConnection, Error as SqliteError, NO_PARAMS, OptionalExtension,
+				Result as SqliteResult,
+				types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, Value, ValueRef}};
+use serde::{Deserialize, de::DeserializeOwned, Serialize};
+use serde_json::to_string;
 
 use std::{marker::PhantomData, path::Path};
 
@@ -74,6 +76,15 @@ impl<I: FromSql> Table<I> {
 			name: name.into(),
 			id_type: PhantomData::default(),
 		}
+	}
+
+	/// Inserts a Json object into the data column of the table.
+	///
+	/// **Warning**: If your table has other columns that are not nullable, then you should not use this.
+	pub fn insert<T: Serialize, C: AsRef<SqliteConnection>>(&self, data: T, connection: C) -> SqliteResult<()> {
+		connection.as_ref().prepare(&format!("INSERT INTO {} ({}) VALUES (?)", self.name, self.data))?
+			.execute(&[&Json(data)])?;
+		Ok(())
 	}
 }
 impl <I: FromSql + ToSql> Table<I> {
@@ -160,5 +171,11 @@ impl<T: DeserializeOwned> FromSql for Json<T> {
 			}
 			_ => Err(FromSqlError::InvalidType),
 		}
+	}
+}
+impl<T: Serialize> ToSql for Json<T> {
+	fn to_sql(&self) -> SqliteResult<ToSqlOutput> {
+		let Json(data) = &self;
+		Ok(ToSqlOutput::Owned(Value::Text(to_string(data).map_err(|err| SqliteError::ToSqlConversionFailure(Box::new(err)))?)))
 	}
 }

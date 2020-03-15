@@ -1,7 +1,7 @@
 use nosqlite::{Connection, Entry};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct User {
 	first_name: String,
 	last_name: String,
@@ -9,8 +9,14 @@ struct User {
 }
 
 fn main() {
-	let connection = Connection::open("../hotpot-test/database.hpdb").unwrap();
+	// If no database with the name provided exists, it is created.
+	let connection = Connection::open("./test.db").unwrap();
+	// If not table within the database exists with the name, it is created.
 	let table = connection.table("test").unwrap();
+	// Inserts a Json object into the table.
+	table.insert(User { first_name: "Hiruna".into(), last_name: "Jayamanne".into(), age: 19}, &connection)
+		.unwrap();
+	// Gets the first Json object in the table. (Not the one we just inserted unless the table was empty).
 	let data: Entry<User, _> = table.get(1).entry(&connection).unwrap().unwrap();
 	println!("{:?}", data)
 }
