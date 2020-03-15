@@ -1,4 +1,4 @@
-use nosquirrelite::{Connection, Entry};
+use nosqlite::{Connection, Entry};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
