@@ -1,3 +1,6 @@
+//! This crate implements a NoSQL-like API over SQLite using SQLite's Json1 extension.
+#![warn(missing_docs)]
+
 use rusqlite::{Connection as SqliteConnection, Error as SqliteError, NO_PARAMS, OptionalExtension,
 				Result as SqliteResult,
 				types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, Value, ValueRef}};
@@ -78,7 +81,7 @@ impl<I: FromSql> Table<I> {
 		}
 	}
 
-	/// Inserts a Json object into the data column of the table.
+	/// Inserts a JSON object into the data column of the table.
 	///
 	/// **Warning**: If your table has other columns that are not nullable, then you should not use this.
 	pub fn insert<T: Serialize, C: AsRef<SqliteConnection>>(&self, data: T, connection: C) -> SqliteResult<()> {
@@ -88,6 +91,7 @@ impl<I: FromSql> Table<I> {
 	}
 }
 impl <I: FromSql + ToSql> Table<I> {
+	/// Gets a JSON object using a id from the id column.
 	pub fn get(&self, id: I) -> Get<I> { Get { id, data_key: &self.data, id_key: &self.id, table: &self.name } }
 }
 
@@ -105,6 +109,8 @@ fn format_key(key: &str) -> Option<String> {
 	Some(prepend)
 }
 
+/// Represents an operation to get a JSON object using its id key.
+#[must_use = "This struct must be used for the database to be queried."]
 pub struct Get<'a, I: FromSql + ToSql> {
 	data_key: &'a str,
 	id: I,
@@ -112,6 +118,7 @@ pub struct Get<'a, I: FromSql + ToSql> {
 	table: &'a str,
 }
 impl<'a, I: FromSql + ToSql> Get<'a, I> {
+	/// Gets only the JSON object, deserialising it into the struct provided.
 	pub fn data<T: DeserializeOwned, C: AsRef<SqliteConnection>>(&self, connection: C) -> SqliteResult<Option<Json<T>>> {
 		connection.as_ref().query_row(
 			&format!("SELECT {} FROM {} WHERE {} = ?", self.data_key, self.table, self.id_key),
@@ -119,6 +126,7 @@ impl<'a, I: FromSql + ToSql> Get<'a, I> {
 			|row| row.get(0)
 		).optional()
 	}
+	/// Gets both the id and the JSON object.
 	pub fn entry<T: DeserializeOwned, C: AsRef<SqliteConnection>>(&self, connection: C) -> SqliteResult<Option<Entry<T, I>>> {
 		connection.as_ref().query_row(
 			&format!("SELECT {}, {} FROM {} WHERE {} = ?", self.id_key, self.data_key, self.table, self.id_key),
@@ -126,6 +134,7 @@ impl<'a, I: FromSql + ToSql> Get<'a, I> {
 			|row| Ok(Entry { id: row.get(0)?, data: row.get(1)? })
 		).optional()
 	}
+	/// Gets only the id of the entry.
 	pub fn id<C: AsRef<SqliteConnection>>(&self, connection: C) -> SqliteResult<Option<I>> {
 		connection.as_ref().query_row(
 			&format!("SELECT {} FROM {} WHERE {} = ?", self.data_key, self.table, self.id_key),
@@ -133,6 +142,7 @@ impl<'a, I: FromSql + ToSql> Get<'a, I> {
 			|row| row.get(0)
 		).optional()
 	}
+	/// Extracts a possibly nested field in the JSON object.
 	pub fn key<T: FromSql, C: AsRef<SqliteConnection>>(&self, key: &str, connection: C) -> SqliteResult<Option<T>> {
 		let key = format_key(key).unwrap();
 		connection.as_ref().query_row(
@@ -143,20 +153,27 @@ impl<'a, I: FromSql + ToSql> Get<'a, I> {
 	}
 }
 
+/// Represents one 'row' of the table.
 #[derive(Debug, Deserialize)]
 pub struct Entry<V, K> {
+	/// The id of the entry.
 	pub id: K,
+	/// The JSON object.
 	pub data: Json<V>,
 }
 impl<V, K> Entry<V, K> {
+	/// Gets the JSON object out of the entry.
 	pub fn data(&self) -> &V {
 		&self.data.0
 	}
 }
 
+/// A newtype to implement the [`ToSql`] and [`FromSql`] traits for a struct that implements
+/// [`Serialize`] and [`Deserialize`] respectively.
 #[derive(Debug, Deserialize)]
 pub struct Json<T>(T);
 impl<T> Json<T> {
+	/// Returns the inner value.
 	pub fn unwrap(self) -> T {
 		let Self(data) = self;
 		data
