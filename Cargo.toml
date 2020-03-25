@@ -1,7 +1,7 @@
 [package]
 name = "nosqlite"
 version = "0.1.0"
-authors = ["Hiruna Kethaka Jayamanne <hirunav2@gmail.com>"]
+authors = ["Hiruna Jayamanne <hiru@hiru.dev>"]
 edition = "2018"
 
 [dependencies]

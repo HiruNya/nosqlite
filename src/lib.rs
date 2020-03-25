@@ -2,7 +2,7 @@
 #![warn(missing_docs)]
 
 use rusqlite::{Connection as SqliteConnection, Error as SqliteError, NO_PARAMS, OptionalExtension,
-				Result as SqliteResult,
+				Result as SqliteResult, Statement,
 				types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, Value, ValueRef}};
 use serde::{Deserialize, de::DeserializeOwned, Serialize};
 use serde_json::to_string;
@@ -81,6 +81,15 @@ impl<I: FromSql> Table<I> {
 		}
 	}
 
+	/// Iterate through all the entries in the table.
+	pub fn iter(&self) -> Iterator<()> {
+		Iterator {
+			data_key: &self.data,
+			table_key: &self.name,
+			where_: (),
+		}
+	}
+
 	/// Inserts a JSON object into the data column of the table.
 	///
 	/// **Warning**: If your table has other columns that are not nullable, then you should not use this.
@@ -107,6 +116,24 @@ fn format_key(key: &str) -> Option<String> {
 	}
 	prepend.push_str(key);
 	Some(prepend)
+}
+
+/// A struct that represents AND.
+///
+/// How this is used depends on the situation.
+pub struct And<A, B> {
+	/// The first struct to be used.
+	pub first: A,
+	/// The second struct to be used.
+	pub second: B,
+}
+
+/// A struct that represents equality.
+pub struct Eq<A, B> {
+	/// The variable that is being checked/set.
+	pub variable: A,
+	/// The value that is being checked for/set.
+	pub value: B,
 }
 
 /// Represents an operation to get a JSON object using its id key.
@@ -150,6 +177,95 @@ impl<'a, I: FromSql + ToSql> Get<'a, I> {
 			&[&self.id],
 			|row| row.get(0)
 		).optional()
+	}
+}
+
+/// Represents a potential operation on a table.
+#[must_use = "This struct does not do anything until executed"]
+pub struct Iterator<'a, W> {
+	data_key: &'a str,
+	where_: W,
+	table_key: &'a str,
+}
+impl<'a, W: Where> Iterator<'a, W> {
+	/// Execute a query using the given command (e.g. "SELECT data"),
+	/// the given function to handle the output, and the connection to the database.
+	pub fn execute<A, T, F, C>(&self, command: &str, execute: F, connection: C) -> SqliteResult<A>
+	where
+		T: DeserializeOwned,
+		F: FnOnce(Statement, Vec<(&str, &dyn ToSql)>) -> SqliteResult<A>,
+		C: AsRef<SqliteConnection>,
+	{
+		let where_ = self.where_.where_(&self).map(|w| format!("WHERE {}", w)).unwrap_or_default();
+		let params = vec![];
+		let con = connection.as_ref().prepare(&format!("{} FROM {} {}", command, &self.table_key, where_))?;
+		execute(con, params)
+	}
+
+	/// ***GET***s only the JSON object.
+	pub fn data<T: DeserializeOwned, C: AsRef<SqliteConnection>>(&self, connection: C) -> SqliteResult<Vec<Json<T>>> {
+		self.execute::<_, T, _, _>(
+			&format!("SELECT {}", self.data_key),
+			|mut statement, params| {
+				Ok(statement.query_map_named(
+					&params,
+					|row| row.get(0)
+				)?.into_iter().filter_map(|result| result.ok()).collect::<Vec<_>>())
+			},
+			connection
+		)
+	}
+
+	/// Applies a filter on what entries the command will operate on.
+	pub fn filter<A: Where>(self, filter: A) -> Iterator<'a, A> {
+		Iterator {
+			where_: filter,
+			table_key: self.table_key,
+			data_key: self.data_key,
+		}
+	}
+}
+
+/// Represents a field in a JSON object.
+pub struct Field(pub String);
+/// Creates a representation of a field in a JSON object.
+pub fn field(field: &str) -> Field { Field(format_key(field).unwrap()) }
+impl Field {
+	/// Takes in a value and serialises it, the serialised output is used in the eventual operation.
+	pub fn eq<T: Serialize>(self, value: T) -> Eq<Field, String> {
+		Eq { variable: self, value: to_string(&value).unwrap() }
+	}
+	fn key<'a, A>(&self, iter: &Iterator<'a, A>) -> String {
+		format!("json_extract({}, \"{}\")", iter.data_key, self.0)
+	}
+}
+
+/// Represents a condition which will determine what entries the operation can work on.
+pub trait Where {
+	/// Returns a string formatted for use in an SQL statement.
+	fn where_<'a, A>(&self, _: &Iterator<'a, A>) -> Option<String>;
+	/// Allows chaining of multiple conditions.
+	fn and<B: Where>(self, second: B) -> And<Self, B>
+		where Self: std::marker::Sized {
+		And { first: self, second }
+	}
+}
+impl Where for () {
+	fn where_<'a, A>(&self, _: &Iterator<'a, A>) -> Option<String> { None }
+}
+impl Where for String {
+	fn where_<'a, A>(&self, _: &Iterator<'a, A>) -> Option<String> { Some(self.clone()) }
+}
+impl<A: Where, B: Where> Where for And<A, B> {
+	fn where_<'a, C>(&self, iter: &Iterator<'a, C>) -> Option<String> {
+		Some(format!("{} AND {}",
+			self.first.where_(iter).unwrap_or_default(),
+			self.second.where_(iter).unwrap_or_default()))
+	}
+}
+impl Where for Eq<Field, String> {
+	fn where_<'a, A>(&self, iter: &Iterator<'a, A>) -> Option<String> {
+		Some(format!("{} = {}", self.variable.key(iter), self.value))
 	}
 }
 
