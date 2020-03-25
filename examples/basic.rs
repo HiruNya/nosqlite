@@ -1,4 +1,4 @@
-use nosqlite::{Connection, field, Json, Where};
+use nosqlite::{Connection, field, Json, Filter};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -15,6 +15,8 @@ fn main() {
 	let table = connection.table("test").unwrap();
 	let data: Vec<Json<User>> = table.iter()
 		.filter(field("age").eq(19).and(field("first_name").eq("Hiruna")))
+		.skip(0)
+		.take(2)
 		.data(&connection)
 		.unwrap();
 	// Inserts a Json object into the table.

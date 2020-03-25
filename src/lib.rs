@@ -85,6 +85,8 @@ impl<I: FromSql> Table<I> {
 	pub fn iter(&self) -> Iterator<()> {
 		Iterator {
 			data_key: &self.data,
+			limit: None,
+			offset: None,
 			table_key: &self.name,
 			where_: (),
 		}
@@ -184,10 +186,12 @@ impl<'a, I: FromSql + ToSql> Get<'a, I> {
 #[must_use = "This struct does not do anything until executed"]
 pub struct Iterator<'a, W> {
 	data_key: &'a str,
+	limit: Option<u32>,
+	offset: Option<u32>,
 	where_: W,
 	table_key: &'a str,
 }
-impl<'a, W: Where> Iterator<'a, W> {
+impl<'a, W: Filter> Iterator<'a, W> {
 	/// Execute a query using the given command (e.g. "SELECT data"),
 	/// the given function to handle the output, and the connection to the database.
 	pub fn execute<A, T, F, C>(&self, command: &str, execute: F, connection: C) -> SqliteResult<A>
@@ -197,8 +201,10 @@ impl<'a, W: Where> Iterator<'a, W> {
 		C: AsRef<SqliteConnection>,
 	{
 		let where_ = self.where_.where_(&self).map(|w| format!("WHERE {}", w)).unwrap_or_default();
+		let limit = if self.limit.is_none() && self.offset.is_none() { String::new() }
+			else { format!("LIMIT {} OFFSET {}", self.limit.map(|i| i as i64).unwrap_or(-1), self.offset.unwrap_or(0)) };
+		let con = connection.as_ref().prepare(&format!("{} FROM {} {} {}", command, &self.table_key, where_, limit))?;
 		let params = vec![];
-		let con = connection.as_ref().prepare(&format!("{} FROM {} {}", command, &self.table_key, where_))?;
 		execute(con, params)
 	}
 
@@ -217,12 +223,26 @@ impl<'a, W: Where> Iterator<'a, W> {
 	}
 
 	/// Applies a filter on what entries the command will operate on.
-	pub fn filter<A: Where>(self, filter: A) -> Iterator<'a, A> {
+	pub fn filter<A: Filter>(self, filter: A) -> Iterator<'a, A> {
 		Iterator {
 			where_: filter,
+			limit: None,
+			offset: self.offset,
 			table_key: self.table_key,
 			data_key: self.data_key,
 		}
+	}
+
+	/// Skip over `n` entries.
+	pub fn skip(mut self, n: u32) -> Self {
+		self.offset = Some(n);
+		self
+	}
+
+	/// Take only `n` entries.
+	pub fn take(mut self, n: u32) -> Self {
+		self.limit = Some(n);
+		self
 	}
 }
 
@@ -241,29 +261,29 @@ impl Field {
 }
 
 /// Represents a condition which will determine what entries the operation can work on.
-pub trait Where {
+pub trait Filter {
 	/// Returns a string formatted for use in an SQL statement.
 	fn where_<'a, A>(&self, _: &Iterator<'a, A>) -> Option<String>;
 	/// Allows chaining of multiple conditions.
-	fn and<B: Where>(self, second: B) -> And<Self, B>
+	fn and<B: Filter>(self, second: B) -> And<Self, B>
 		where Self: std::marker::Sized {
 		And { first: self, second }
 	}
 }
-impl Where for () {
+impl Filter for () {
 	fn where_<'a, A>(&self, _: &Iterator<'a, A>) -> Option<String> { None }
 }
-impl Where for String {
+impl Filter for String {
 	fn where_<'a, A>(&self, _: &Iterator<'a, A>) -> Option<String> { Some(self.clone()) }
 }
-impl<A: Where, B: Where> Where for And<A, B> {
+impl<A: Filter, B: Filter> Filter for And<A, B> {
 	fn where_<'a, C>(&self, iter: &Iterator<'a, C>) -> Option<String> {
 		Some(format!("{} AND {}",
 			self.first.where_(iter).unwrap_or_default(),
 			self.second.where_(iter).unwrap_or_default()))
 	}
 }
-impl Where for Eq<Field, String> {
+impl Filter for Eq<Field, String> {
 	fn where_<'a, A>(&self, iter: &Iterator<'a, A>) -> Option<String> {
 		Some(format!("{} = {}", self.variable.key(iter), self.value))
 	}
