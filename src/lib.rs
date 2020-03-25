@@ -82,9 +82,11 @@ impl<I: FromSql> Table<I> {
 	}
 
 	/// Iterate through all the entries in the table.
-	pub fn iter(&self) -> Iterator<()> {
+	pub fn iter(&self) -> Iterator<I, ()> {
 		Iterator {
 			data_key: &self.data,
+			id_key: &self.id,
+			id_type: self.id_type.clone(),
 			limit: None,
 			offset: None,
 			table_key: &self.name,
@@ -156,7 +158,7 @@ impl<'a, I: FromSql + ToSql> Get<'a, I> {
 		).optional()
 	}
 	/// Gets both the id and the JSON object.
-	pub fn entry<T: DeserializeOwned, C: AsRef<SqliteConnection>>(&self, connection: C) -> SqliteResult<Option<Entry<T, I>>> {
+	pub fn entry<T: DeserializeOwned, C: AsRef<SqliteConnection>>(&self, connection: C) -> SqliteResult<Option<Entry<I, T>>> {
 		connection.as_ref().query_row(
 			&format!("SELECT {}, {} FROM {} WHERE {} = ?", self.id_key, self.data_key, self.table, self.id_key),
 			&[&self.id],
@@ -182,21 +184,34 @@ impl<'a, I: FromSql + ToSql> Get<'a, I> {
 	}
 }
 
+fn get_first_column<T>(mut statement: Statement, params: Vec<(&str, &dyn ToSql)>) -> SqliteResult<Vec<T>>
+where T: FromSql
+{
+	Ok(
+		statement.query_map_named(
+			&params,
+			|row| row.get(0)
+	)?.into_iter()
+		.filter_map(|result| result.ok())
+		.collect())
+}
+
 /// Represents a potential operation on a table.
 #[must_use = "This struct does not do anything until executed"]
-pub struct Iterator<'a, W> {
+pub struct Iterator<'a, I, W> {
 	data_key: &'a str,
+	id_key: &'a str,
+	id_type: PhantomData<fn() -> I>,
 	limit: Option<u32>,
 	offset: Option<u32>,
 	where_: W,
 	table_key: &'a str,
 }
-impl<'a, W: Filter> Iterator<'a, W> {
+impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
 	/// Execute a query using the given command (e.g. "SELECT data"),
 	/// the given function to handle the output, and the connection to the database.
-	pub fn execute<A, T, F, C>(&self, command: &str, execute: F, connection: C) -> SqliteResult<A>
+	pub fn execute<A, F, C>(&self, command: &str, execute: F, connection: C) -> SqliteResult<A>
 	where
-		T: DeserializeOwned,
 		F: FnOnce(Statement, Vec<(&str, &dyn ToSql)>) -> SqliteResult<A>,
 		C: AsRef<SqliteConnection>,
 	{
@@ -210,22 +225,79 @@ impl<'a, W: Filter> Iterator<'a, W> {
 
 	/// ***GET***s only the JSON object.
 	pub fn data<T: DeserializeOwned, C: AsRef<SqliteConnection>>(&self, connection: C) -> SqliteResult<Vec<Json<T>>> {
-		self.execute::<_, T, _, _>(
+		self.execute::<_, _, _>(
 			&format!("SELECT {}", self.data_key),
+			get_first_column,
+			connection
+		)
+	}
+
+	/// ***GET***s the id and the JSON object.
+	pub fn entry<T: DeserializeOwned, C: AsRef<SqliteConnection>>(&self, connection: C) -> SqliteResult<Vec<Entry<I, T>>> {
+		self.execute::<_, _, _>(
+			&format!("SELECT {}, {}", self.id_key, self.data_key),
 			|mut statement, params| {
 				Ok(statement.query_map_named(
 					&params,
-					|row| row.get(0)
+					|row| Ok(Entry { id: row.get(0)?, data: row.get(1)? })
 				)?.into_iter().filter_map(|result| result.ok()).collect::<Vec<_>>())
 			},
 			connection
 		)
 	}
 
+	/// ***GET***s just the id of the entry.
+	pub fn id<C: AsRef<SqliteConnection>>(&self, connection: C) -> SqliteResult<Vec<I>> {
+		self.execute::<_, _, _>(
+			&format!("SELECT {}", self.id_key),
+			get_first_column,
+			connection
+		)
+	}
+
+	/// ***GET***s a field of the JSON object.
+	pub fn field<T: FromSql, C: AsRef<SqliteConnection>>(&self, field_: &str, connection: C) -> SqliteResult<Vec<T>> {
+		self.execute::<_, _, _>(
+			&format!("SELECT {}", field(field_).key(&self)),
+			get_first_column,
+			connection
+		)
+	}
+
+	/// ***GET***s multiple fields from the JSON object.
+	pub fn fields<'b, F, T, C, S>(&self, fields: F, connection: C) -> SqliteResult<Vec<T>>
+	where
+		F: IntoIterator<Item=S>,
+		S: AsRef<str>,
+		T: DeserializeOwned,
+		C: AsRef<SqliteConnection>,
+	{
+		let fields = fields.into_iter()
+			.filter_map(|s| format_key(s.as_ref()))
+			.fold(String::new(), |mut init, field| {
+				init.push_str(",\"");
+				init.push_str(field.as_str());
+				init.push('"');
+				init
+			});
+		self.execute::<_, _, _>(
+			&format!("SELECT json_extract({}{})", self.data_key, fields),
+			|mut statement, params| {
+				Ok(statement.query_map_named(
+					&params,
+					|row| -> SqliteResult<Json<T>> { row.get(0) }
+				)?.into_iter().filter_map(|result| result.ok()).map(Json::unwrap).collect::<Vec<_>>())
+			},
+			connection
+		)
+	}
+
 	/// Applies a filter on what entries the command will operate on.
-	pub fn filter<A: Filter>(self, filter: A) -> Iterator<'a, A> {
+	pub fn filter<A: Filter>(self, filter: A) -> Iterator<'a, I, A> {
 		Iterator {
 			where_: filter,
+			id_key: self.id_key,
+			id_type: self.id_type,
 			limit: None,
 			offset: self.offset,
 			table_key: self.table_key,
@@ -255,7 +327,7 @@ impl Field {
 	pub fn eq<T: Serialize>(self, value: T) -> Eq<Field, String> {
 		Eq { variable: self, value: to_string(&value).unwrap() }
 	}
-	fn key<'a, A>(&self, iter: &Iterator<'a, A>) -> String {
+	fn key<'a, A, B>(&self, iter: &Iterator<'a, A, B>) -> String {
 		format!("json_extract({}, \"{}\")", iter.data_key, self.0)
 	}
 }
@@ -263,7 +335,7 @@ impl Field {
 /// Represents a condition which will determine what entries the operation can work on.
 pub trait Filter {
 	/// Returns a string formatted for use in an SQL statement.
-	fn where_<'a, A>(&self, _: &Iterator<'a, A>) -> Option<String>;
+	fn where_<'a, A, B>(&self, _: &Iterator<'a, A, B>) -> Option<String>;
 	/// Allows chaining of multiple conditions.
 	fn and<B: Filter>(self, second: B) -> And<Self, B>
 		where Self: std::marker::Sized {
@@ -271,33 +343,33 @@ pub trait Filter {
 	}
 }
 impl Filter for () {
-	fn where_<'a, A>(&self, _: &Iterator<'a, A>) -> Option<String> { None }
+	fn where_<'a, A, B>(&self, _: &Iterator<'a, A, B>) -> Option<String> { None }
 }
 impl Filter for String {
-	fn where_<'a, A>(&self, _: &Iterator<'a, A>) -> Option<String> { Some(self.clone()) }
+	fn where_<'a, A, B>(&self, _: &Iterator<'a, A, B>) -> Option<String> { Some(self.clone()) }
 }
 impl<A: Filter, B: Filter> Filter for And<A, B> {
-	fn where_<'a, C>(&self, iter: &Iterator<'a, C>) -> Option<String> {
+	fn where_<'a, C, D>(&self, iter: &Iterator<'a, C, D>) -> Option<String> {
 		Some(format!("{} AND {}",
 			self.first.where_(iter).unwrap_or_default(),
 			self.second.where_(iter).unwrap_or_default()))
 	}
 }
 impl Filter for Eq<Field, String> {
-	fn where_<'a, A>(&self, iter: &Iterator<'a, A>) -> Option<String> {
+	fn where_<'a, A, B>(&self, iter: &Iterator<'a, A, B>) -> Option<String> {
 		Some(format!("{} = {}", self.variable.key(iter), self.value))
 	}
 }
 
 /// Represents one 'row' of the table.
 #[derive(Debug, Deserialize)]
-pub struct Entry<V, K> {
+pub struct Entry<K, V> {
 	/// The id of the entry.
 	pub id: K,
 	/// The JSON object.
 	pub data: Json<V>,
 }
-impl<V, K> Entry<V, K> {
+impl<K, V> Entry<K, V> {
 	/// Gets the JSON object out of the entry.
 	pub fn data(&self) -> &V {
 		&self.data.0

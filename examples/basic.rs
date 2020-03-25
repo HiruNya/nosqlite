@@ -1,4 +1,4 @@
-use nosqlite::{Connection, field, Json, Filter};
+use nosqlite::{Connection, field};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -11,13 +11,13 @@ struct User {
 fn main() {
 	// If no database with the name provided exists, it is created.
 	let connection = Connection::open("./test.db").unwrap();
-	// If not table within the database exists with the name, it is created.
+	// If no table within the database exists with the name, it is created.
 	let table = connection.table("test").unwrap();
-	let data: Vec<Json<User>> = table.iter()
-		.filter(field("age").eq(19).and(field("first_name").eq("Hiruna")))
+	let data: Vec<(String, String)> = table.iter()
+		.filter(field("age").eq(19))
 		.skip(0)
 		.take(2)
-		.data(&connection)
+		.fields(&["first_name", "last_name"], &connection)
 		.unwrap();
 	// Inserts a Json object into the table.
 	// table.insert(User { first_name: "Hiruna".into(), last_name: "Jayamanne".into(), age: 19}, &connection)
