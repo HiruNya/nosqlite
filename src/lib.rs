@@ -27,6 +27,11 @@ impl Connection {
 		Ok(Self { connection: SqliteConnection::open(path)? })
 	}
 
+	/// Opens a new connection to a sqlite database in-memory.
+	pub fn in_memory() -> SqliteResult<Self> {
+		Ok(Self { connection: SqliteConnection::open_in_memory()? })
+	}
+
 	/// Gets a table in the database.
 	///
 	/// Creates one if it doesn't exist.
