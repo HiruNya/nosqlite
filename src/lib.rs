@@ -146,6 +146,22 @@ pub struct Eq<A, B> {
 	pub value: B,
 }
 
+/// A struct that compares whether `G > L`.
+pub struct Gt<G, L> {
+	/// The greater value.
+	pub greater: G,
+	/// The lesser value.
+	pub lesser: L,
+}
+
+/// A struct that compares whether `G >= L`.
+pub struct Gte<G, L> {
+	/// The greater value.
+	pub greater: G,
+	/// The lesser or equal value.
+	pub lesser: L,
+}
+
 /// Represents an operation to get a JSON object using its id key.
 #[must_use = "This struct must be used for the database to be queried."]
 pub struct Get<'a, I: FromSql + ToSql> {
@@ -199,6 +215,22 @@ impl Field {
 	pub fn eq<T: Serialize>(self, value: T) -> Eq<Field, String> {
 		Eq { variable: self, value: to_string(&value).unwrap() }
 	}
+	/// Takes in a value and compares if it is less than the variable.
+	pub fn gt<T: Serialize>(self, value: T) -> Gt<Field, String> {
+		Gt { greater: self, lesser: to_string(&value).unwrap() }
+	}
+	/// Takes in a value and compares if it is less than or equal to the variable.
+	pub fn gte<T: Serialize>(self, value: T) -> Gte<Field, String> {
+		Gte { greater: self, lesser: to_string(&value).unwrap() }
+	}
+	/// Takes in a value and compares if it is greater than the variable.
+	pub fn lt<T: Serialize>(self, value: T) -> Gt<String, Field> {
+		Gt { lesser: self, greater: to_string(&value).unwrap() }
+	}
+	/// Takes in a value and compares if it is greater than or equal to the variable.
+	pub fn lte<T: Serialize>(self, value: T) -> Gte<String, Field> {
+		Gte { lesser: self, greater: to_string(&value).unwrap() }
+	}
 	fn key<'a, A, B>(&self, iter: &Iterator<'a, A, B>) -> String {
 		format!("json_extract({}, \"{}\")", iter.data_key, self.0)
 	}
@@ -230,6 +262,26 @@ impl<A: Filter, B: Filter> Filter for And<A, B> {
 impl Filter for Eq<Field, String> {
 	fn where_<'a, A, B>(&self, iter: &Iterator<'a, A, B>) -> Option<String> {
 		Some(format!("{} = {}", self.variable.key(iter), self.value))
+	}
+}
+impl Filter for Gt<Field, String> {
+	fn where_<'a, A, B>(&self, iter: &Iterator<'a, A, B>) -> Option<String> {
+		Some(format!("{} > {}", self.greater.key(iter), self.lesser))
+	}
+}
+impl Filter for Gte<Field, String> {
+	fn where_<'a, A, B>(&self, iter: &Iterator<'a, A, B>) -> Option<String> {
+		Some(format!("{} >= {}", self.greater.key(iter), self.lesser))
+	}
+}
+impl Filter for Gt<String, Field> {
+	fn where_<'a, A, B>(&self, iter: &Iterator<'a, A, B>) -> Option<String> {
+		Some(format!("{} < {}", self.lesser.key(iter), self.greater))
+	}
+}
+impl Filter for Gte<String, Field> {
+	fn where_<'a, A, B>(&self, iter: &Iterator<'a, A, B>) -> Option<String> {
+		Some(format!("{} <= {}", self.lesser.key(iter), self.greater))
 	}
 }
 
