@@ -1,8 +1,8 @@
 use std::marker::PhantomData;
 
-use rusqlite::{Connection as SqliteConnection, Error as SqlError, Result as SqliteResult, Statement,
+use rusqlite::{Connection as SqliteConnection, Result as SqliteResult, Statement,
 	types::{FromSql, ToSql}};
-use serde::de::DeserializeOwned;
+use serde::{de::DeserializeOwned, Serialize};
 
 use crate::{Entry, field, Filter, format_key, Json};
 
@@ -80,7 +80,7 @@ impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
 		C: AsRef<SqliteConnection>,
 	{
 		let fields = fields.into_iter()
-			.filter_map(|s| format_key(s.as_ref()))
+			.map(|s| format_key(s.as_ref()))
 			.fold(String::new(), |mut init, field| {
 				init.push_str(",\"");
 				init.push_str(field.as_str());
@@ -99,17 +99,31 @@ impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
 		)
 	}
 
+	/// Uses a JSON object update or create fields in the entry's JSON object.
+	///
+	/// Any fields that do not exist will be created.
+	/// This unfortunately does not work with Arrays. It will replace Arrays instead.
+	pub fn patch<T, C>(&self, value: T, connection: C) -> SqliteResult<()>
+		where
+			T: Serialize,
+			C: AsRef<SqliteConnection>,
+	{
+		let set_value = format!("{} = json_patch({},:value)", self.data_key, self.data_key);
+		connection.as_ref().execute_named(
+			&format!("UPDATE {} SET {} {}", self.table_key, set_value, self.make_clauses()),
+			&[(":value", &Json(value))]
+		).map(|_|())
+	}
+
 	/// Sets a field in a JSON object to a given field.
+	///
+	/// If the field does not exist, it will be created.
 	pub fn set<T, C>(&self, field: &str, value: T, connection: C) -> SqliteResult<()>
 	where
 		T: ToSql,
 		C: AsRef<SqliteConnection>,
 	{
-		let path;
-		if let Some(field) = format_key(field) { path = field }
-		else {
-			return Err(SqlError::InvalidColumnName(field.to_string()))
-		}
+		let path = format_key(field);
 		let set_value = format!("{} = json_set({},\"{}\",:value)", self.data_key, self.data_key, path);
 		connection.as_ref().execute_named(
 			&format!("UPDATE {} SET {} {}", self.table_key, set_value, self.make_clauses()),

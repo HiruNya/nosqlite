@@ -3,7 +3,7 @@
 
 use rusqlite::{Connection as SqliteConnection, Error as SqliteError, NO_PARAMS, OptionalExtension,
 				Result as SqliteResult,
-				types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, Value, ValueRef}};
+				types::{FromSqlError, FromSqlResult, ToSqlOutput, Value, ValueRef}};
 use serde::{Deserialize, de::DeserializeOwned, Serialize};
 use serde_json::to_string;
 
@@ -11,6 +11,9 @@ use std::{marker::PhantomData, path::Path};
 
 mod iterator;
 pub use iterator::Iterator;
+
+pub use rusqlite::types::{FromSql, ToSql};
+pub use serde_json::json;
 
 /// A connection the underlying sqlite database.
 pub struct Connection {
@@ -111,7 +114,7 @@ impl <I: FromSql + ToSql> Table<I> {
 	pub fn get(&self, id: I) -> Get<I> { Get { id, data_key: &self.data, id_key: &self.id, table: &self.name } }
 }
 
-fn format_key(key: &str) -> Option<String> {
+fn format_key(key: &str) -> String {
 	let mut chars = key.chars();
 	let mut prepend = String::with_capacity(2+key.len());
 	if chars.next() != Some('$') {
@@ -122,7 +125,7 @@ fn format_key(key: &str) -> Option<String> {
 		}
 	}
 	prepend.push_str(key);
-	Some(prepend)
+	prepend
 }
 
 /// A struct that represents AND.
@@ -178,7 +181,7 @@ impl<'a, I: FromSql + ToSql> Get<'a, I> {
 	}
 	/// Extracts a possibly nested field in the JSON object.
 	pub fn key<T: FromSql, C: AsRef<SqliteConnection>>(&self, key: &str, connection: C) -> SqliteResult<Option<T>> {
-		let key = format_key(key).unwrap();
+		let key = format_key(key);
 		connection.as_ref().query_row(
 			&format!("SELECT json_extract({}, \"{}\") FROM {} WHERE {} = ?", self.data_key, key, self.table, self.id_key),
 			&[&self.id],
@@ -190,7 +193,7 @@ impl<'a, I: FromSql + ToSql> Get<'a, I> {
 /// Represents a field in a JSON object.
 pub struct Field(pub String);
 /// Creates a representation of a field in a JSON object.
-pub fn field(field: &str) -> Field { Field(format_key(field).unwrap()) }
+pub fn field(field: &str) -> Field { Field(format_key(field)) }
 impl Field {
 	/// Takes in a value and serialises it, the serialised output is used in the eventual operation.
 	pub fn eq<T: Serialize>(self, value: T) -> Eq<Field, String> {
