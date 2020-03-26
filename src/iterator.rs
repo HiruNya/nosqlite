@@ -18,19 +18,22 @@ pub struct Iterator<'a, I, W> {
 	pub(crate) table_key: &'a str,
 }
 impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
-	/// Execute a query using the given command (e.g. "SELECT data"),
-	/// the given function to handle the output, and the connection to the database.
-	pub fn execute_get<A, F, C>(&self, command: &str, execute: F, connection: C) -> SqliteResult<A>
-		where
-			F: FnOnce(Statement, Vec<(&str, &dyn ToSql)>) -> SqliteResult<A>,
-			C: AsRef<SqliteConnection>,
-	{
-		let con = connection.as_ref().prepare(&format!("{} FROM {} {}", command, &self.table_key, self.make_clauses()))?;
-		let params = vec![];
-		execute(con, params)
-	}
-
 	/// ***GET***s only the JSON object.
+	///
+	/// # Example
+	///
+	/// ```
+	/// # use nosqlite::{Connection, Json, Table};
+	/// # use serde::{Deserialize, Serialize};
+	/// # let connection = Connection::in_memory()?;
+	/// # let table = connection.table("people")?;
+	/// # #[derive(Deserialize, Serialize)]
+	/// # struct Person {
+	/// # 	name: String,
+	/// # }
+	/// let people: Vec<Json<Person>> = table.iter().data(&connection)?;
+	/// # rusqlite::Result::Ok(())
+	/// ```
 	pub fn data<T: DeserializeOwned, C: AsRef<SqliteConnection>>(&self, connection: C) -> SqliteResult<Vec<Json<T>>> {
 		self.execute_get::<_, _, _>(
 			&format!("SELECT {}", self.data_key),
@@ -40,6 +43,21 @@ impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
 	}
 
 	/// ***GET***s the id and the JSON object.
+	///
+	/// # Example
+	///
+	/// ```
+	/// # use nosqlite::{Connection, Entry, Table};
+	/// # use serde::{Deserialize, Serialize};
+	/// # let connection = Connection::in_memory()?;
+	/// # let table = connection.table("people")?;
+	/// # #[derive(Deserialize, Serialize)]
+	/// # struct Person {
+	/// # 	name: String,
+	/// # }
+	/// let people: Vec<Entry<i64, Person>> = table.iter().entry(&connection)?;
+	/// # rusqlite::Result::Ok(())
+	/// ```
 	pub fn entry<T: DeserializeOwned, C: AsRef<SqliteConnection>>(&self, connection: C) -> SqliteResult<Vec<Entry<I, T>>> {
 		self.execute_get::<_, _, _>(
 			&format!("SELECT {}, {}", self.id_key, self.data_key),
@@ -54,6 +72,21 @@ impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
 	}
 
 	/// ***GET***s just the id of the entry.
+	///
+	/// # Example
+	///
+	/// ```
+	/// # use nosqlite::{Connection, Entry, Table};
+	/// # use serde::{Deserialize, Serialize};
+	/// # let connection = Connection::in_memory()?;
+	/// # let table = connection.table("people")?;
+	/// # #[derive(Deserialize, Serialize)]
+	/// # struct Person {
+	/// # 	name: String,
+	/// # }
+	/// let people: Vec<i64> = table.iter().id(&connection)?;
+	/// # rusqlite::Result::Ok(())
+	/// ```
 	pub fn id<C: AsRef<SqliteConnection>>(&self, connection: C) -> SqliteResult<Vec<I>> {
 		self.execute_get::<_, _, _>(
 			&format!("SELECT {}", self.id_key),
@@ -63,6 +96,25 @@ impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
 	}
 
 	/// ***GET***s a field of the JSON object.
+	///
+	/// # Example
+	///
+	/// ```
+	/// # use nosqlite::{Connection, Entry, Table};
+	/// # use serde::{Deserialize, Serialize};
+	/// # let connection = Connection::in_memory()?;
+	/// # let table = connection.table("people")?;
+	/// #[derive(Deserialize, Serialize)]
+	/// struct Person {
+	/// 	first_name: String,
+	/// 	last_name: String,
+	/// 	age: u8,
+	/// }
+	/// table.insert(Person{ first_name: "Hiruna".into(), last_name: "Jayamanne".into(), age: 19 }, &connection)?;
+	/// let people: Vec<String> = table.iter().field("first_name", &connection)?;
+	/// assert_eq!(people[0], "Hiruna");
+	/// # rusqlite::Result::Ok(())
+	/// ```
 	pub fn field<T: FromSql, C: AsRef<SqliteConnection>>(&self, field_: &str, connection: C) -> SqliteResult<Vec<T>> {
 		self.execute_get::<_, _, _>(
 			&format!("SELECT {}", field(field_).key(&self)),
@@ -72,7 +124,26 @@ impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
 	}
 
 	/// ***GET***s multiple fields from the JSON object.
-	pub fn fields<'b, F, T, C, S>(&self, fields: F, connection: C) -> SqliteResult<Vec<T>>
+	///
+	/// # Example
+	///
+	/// ```
+	/// # use nosqlite::{Connection, Entry, Table};
+	/// # use serde::{Deserialize, Serialize};
+	/// # let connection = Connection::in_memory()?;
+	/// # let table = connection.table("people")?;
+	/// #[derive(Deserialize, Serialize)]
+	/// struct Person {
+	/// 	first_name: String,
+	/// 	last_name: String,
+	/// 	age: u8,
+	/// }
+	/// table.insert(Person{ first_name: "Hiruna".into(), last_name: "Jayamanne".into(), age: 19 }, &connection)?;
+	/// let people: Vec<(String, String)> = table.iter().fields(&["first_name", "last_name"], &connection)?;
+	/// assert_eq!(people[0], ("Hiruna".into(), "Jayamanne".into()));
+	/// # rusqlite::Result::Ok(())
+	/// ```
+	pub fn fields<'b, T, F, C, S>(&self, fields: F, connection: C) -> SqliteResult<Vec<T>>
 	where
 		F: IntoIterator<Item=S>,
 		S: AsRef<str>,
@@ -105,6 +176,25 @@ impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
 	/// If you wish for it to be overwritten, use [`set`] instead.
 	///
 	/// [`set`]: #method.set
+	///
+	/// # Example
+	///
+	/// ```
+	/// # use nosqlite::{Connection, Entry, Table, json};
+	/// # use serde::{Deserialize, Serialize};
+	/// # let connection = Connection::in_memory()?;
+	/// # let table = connection.table("people")?;
+	/// // Has an `age` field
+	/// table.insert(json!({ "first_name": "Hiruna", "age": 19 }), &connection)?;
+	/// // Does not have an `age` field
+	/// table.insert(json!({ "first_name": "Bob" }), &connection)?;
+	/// // `insert` should only work for objects which don't have the field already
+	/// table.iter().insert("age", 13, &connection);
+	/// let people: Vec<(String, u8)> = table.iter().fields(&["first_name", "age"], &connection)?;
+	/// assert_eq!(people[0], ("Hiruna".into(), 19));
+	/// assert_eq!(people[1], ("Bob".into(), 13)); // Only Bob was changed
+	/// # rusqlite::Result::Ok(())
+	/// ```
 	pub fn insert<T, C>(&self, field: &str, value: T, connection: C) -> SqliteResult<()>
 	where
 		T: ToSql,
@@ -125,6 +215,29 @@ impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
 	/// To insert into Arrays, use [`insert`] instead.
 	///
 	/// [`insert`]: #method.insert
+	///
+	/// # Example
+	///
+	/// ```
+	/// # use nosqlite::{Connection, Entry, json, Json, Table};
+	/// # use serde::{Deserialize, Serialize};
+	/// # let connection = Connection::in_memory()?;
+	/// # let table = connection.table("people")?;
+	/// table.insert(json!({ "first_name": "Hiruna", "age": 19 }), &connection)?;
+	/// table.insert(json!({ "first_name": "Bob" }), &connection)?;
+	/// table.insert(json!({ "first_name": "Alex", "grades": [6, 8, 7] }), &connection)?;
+	/// // `patch` overwrites any field
+	/// // arrays are completely replace
+	/// table.iter().patch(json!({ "age": 13, "grades": [9] }), &connection);
+	/// let people: Vec<(u8, Json<Vec<u8>>)> = table.iter().fields(&["age", "grades"], &connection)?;
+	/// for person in people.into_iter() {
+	/// 	// `age` field was overwritten and set to 13
+	/// 	assert_eq!(person.0, 13);
+	/// 	// `grades` field was overwritten and set to an array of one element
+	/// 	assert_eq!(person.1.as_ref().as_ref(), [9])
+	/// }
+	/// # rusqlite::Result::Ok(())
+	/// ```
 	pub fn patch<T, C>(&self, value: T, connection: C) -> SqliteResult<()>
 	where
 		T: Serialize,
@@ -140,6 +253,26 @@ impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
 	/// Replaces a field in a JSON object with a given value.
 	///
 	/// Will only replace an already existing field.
+	///
+	/// # Example
+	///
+	/// ```
+	/// # use nosqlite::{Connection, Entry, Table, json};
+	/// # use serde::{Deserialize, Serialize};
+	/// # let connection = Connection::in_memory()?;
+	/// # let table = connection.table("people")?;
+	/// // Has an `age` field
+	/// table.insert(json!({ "first_name": "Hiruna", "age": 19 }), &connection)?;
+	/// // Does not have an `age` field
+	/// table.insert(json!({ "first_name": "Bob" }), &connection)?;
+	/// // `replace` should only work for objects which have the field already
+	/// table.iter().replace("age", 13, &connection);
+	/// let people: Vec<u8> = table.iter().field("age", &connection)?;
+	/// // Both objects had their fields set
+	/// assert_eq!(people.len(), 1);
+	/// assert_eq!(people[0], 13);
+	/// # rusqlite::Result::Ok(())
+	/// ```
 	pub fn replace<T, C>(&self, field: &str, value: T, connection: C) -> SqliteResult<()>
 	where
 		T: ToSql,
@@ -160,6 +293,25 @@ impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
 	/// If you wish for the value to not be overwritten, use [`insert`] instead.
 	///
 	/// [`insert`]: #method.insert
+	///
+	/// # Example
+	///
+	/// ```
+	/// # use nosqlite::{Connection, Entry, Table, json};
+	/// # use serde::{Deserialize, Serialize};
+	/// # let connection = Connection::in_memory()?;
+	/// # let table = connection.table("people")?;
+	/// // Has an `age` field
+	/// table.insert(json!({ "first_name": "Hiruna", "age": 19 }), &connection)?;
+	/// // Does not have an `age` field
+	/// table.insert(json!({ "first_name": "Bob" }), &connection)?;
+	/// table.iter().set("age", 13, &connection);
+	/// let people: Vec<u8> = table.iter().field("age", &connection)?;
+	/// // Both objects had their fields set
+	/// assert_eq!(people[0], 13);
+	/// assert_eq!(people[1], 13);
+	/// # rusqlite::Result::Ok(())
+	/// ```
 	pub fn set<T, C>(&self, field: &str, value: T, connection: C) -> SqliteResult<()>
 	where
 		T: ToSql,
@@ -174,6 +326,30 @@ impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
 	}
 
 	/// Applies a filter on what entries the command will operate on.
+	///
+	/// # Example
+	///
+	/// ```
+	/// # use nosqlite::{Connection, Entry, field, Table, json};
+	/// # use serde::{Deserialize, Serialize};
+	/// # let connection = Connection::in_memory()?;
+	/// # let table = connection.table("people")?;
+	/// table.insert(json!({"name": "Hiruna", "age": 19}), &connection)?;
+	/// table.insert(json!({"name": "Bob", "age": 13}), &connection)?;
+	/// table.insert(json!({"name": "Callum", "age": 12}), &connection)?;
+	/// table.insert(json!({"name": "John", "age": 20}), &connection)?;
+	/// // We only want people 18 or above
+	/// let people: Vec<(String, u8)> = table.iter()
+	/// 	.filter(field("age").gte(18))
+	/// 	.fields(&["name", "age"], &connection)?;
+	/// // Only 2 people should have passed the filter
+	/// assert_eq!(people.len(), 2);
+	/// for person in people.into_iter() {
+	/// 	// They should be 18+ years old
+	/// 	assert!(person.1 >= 18);
+	/// }
+	/// # rusqlite::Result::Ok(())
+	/// ```
 	pub fn filter<A: Filter>(self, filter: A) -> Iterator<'a, I, A> {
 		Iterator {
 			where_: filter,
@@ -187,15 +363,73 @@ impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
 	}
 
 	/// Skip over `n` entries.
+	///
+	/// # Example
+	///
+	/// ```
+	/// # use nosqlite::{Connection, Entry, field, Table, json};
+	/// # use serde::{Deserialize, Serialize};
+	/// # let connection = Connection::in_memory()?;
+	/// # let table = connection.table("people")?;
+	/// table.insert(json!({"name": "Hiruna", "age": 19}), &connection)?;
+	/// table.insert(json!({"name": "Bob", "age": 13}), &connection)?;
+	/// table.insert(json!({"name": "Callum", "age": 12}), &connection)?;
+	/// table.insert(json!({"name": "John", "age": 20}), &connection)?;
+	/// // We want the people third or above in position within the table
+	/// let people: Vec<String> = table.iter()
+	/// 	.skip(2)
+	/// 	.field("name", &connection)?;
+	/// // Only 2 people should have passed the filter
+	/// assert_eq!(people.len(), 2);
+	/// assert_eq!(people[0], "Callum");
+	/// assert_eq!(people[1], "John");
+	/// # rusqlite::Result::Ok(())
+	/// ```
 	pub fn skip(mut self, n: u32) -> Self {
 		self.offset = Some(n);
 		self
 	}
 
 	/// Take only `n` entries.
+	///
+	/// # Example
+	///
+	/// ```
+	/// # use nosqlite::{Connection, Entry, field, Table, json};
+	/// # use serde::{Deserialize, Serialize};
+	/// # let connection = Connection::in_memory()?;
+	/// # let table = connection.table("people")?;
+	/// table.insert(json!({"name": "Hiruna", "age": 19}), &connection)?;
+	/// table.insert(json!({"name": "Bob", "age": 13}), &connection)?;
+	/// table.insert(json!({"name": "Callum", "age": 12}), &connection)?;
+	/// table.insert(json!({"name": "John", "age": 20}), &connection)?;
+	/// // We only want the first two people
+	/// let people: Vec<String> = table.iter()
+	/// 	.take(2)
+	/// 	.field("name", &connection)?;
+	/// // Only 2 people should have passed the filter
+	/// assert_eq!(people.len(), 2);
+	/// assert_eq!(people[0], "Hiruna");
+	/// assert_eq!(people[1], "Bob");
+	/// # rusqlite::Result::Ok(())
+	/// ```
 	pub fn take(mut self, n: u32) -> Self {
 		self.limit = Some(n);
 		self
+	}
+
+	/// Execute a query using the given command (e.g. "SELECT data"),
+	/// the given function to handle the output, and the connection to the database.
+	///
+	/// *It is not recommended to use this method.*
+	pub fn execute_get<A, F, C>(&self, command: &str, execute: F, connection: C) -> SqliteResult<A>
+		where
+			F: FnOnce(Statement, Vec<(&str, &dyn ToSql)>) -> SqliteResult<A>,
+			C: AsRef<SqliteConnection>,
+	{
+		let con = connection.as_ref().prepare(&format!("{} FROM {} {}", command, &self.table_key, self.make_clauses()))?;
+		let params = vec![];
+		execute(con, params)
 	}
 
 	fn make_clauses(&self) -> String {

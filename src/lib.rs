@@ -1,4 +1,8 @@
 //! This crate implements a NoSQL-like API over SQLite using SQLite's Json1 extension.
+//!
+//! If this is your first time here, start of by reading the [`Connection`] docs.
+//!
+//! [`Connection`]: struct.Connection.html
 #![warn(missing_docs)]
 
 use rusqlite::{Connection as SqliteConnection, Error as SqliteError, NO_PARAMS, OptionalExtension,
@@ -11,6 +15,7 @@ use std::{marker::PhantomData, path::Path};
 
 mod iterator;
 pub use iterator::Iterator;
+pub(crate) use util::*;
 
 pub use rusqlite::types::{FromSql, ToSql};
 pub use serde_json::json;
@@ -23,18 +28,43 @@ impl Connection {
 	/// Opens a connection to a sqlite database.
 	///
 	/// Creates one if it doesn't exist.
+	///
+	/// # Example
+	///
+	/// ```rust
+	/// use nosqlite::Connection;
+	/// let connection = Connection::open("database.db")?;
+	/// # Ok::<(), rusqlite::Error>(())
+	/// ```
 	pub fn open<P: AsRef<Path>>(path: P) -> SqliteResult<Self> {
 		Ok(Self { connection: SqliteConnection::open(path)? })
 	}
 
 	/// Opens a new connection to a sqlite database in-memory.
+	///
+	/// # Example
+	///
+	/// ```rust
+	/// use nosqlite::Connection;
+	/// let connection = Connection::in_memory()?;
+	/// # Ok::<(), rusqlite::Error>(())
+	/// ```
 	pub fn in_memory() -> SqliteResult<Self> {
 		Ok(Self { connection: SqliteConnection::open_in_memory()? })
 	}
 
-	/// Gets a table in the database.
+	/// Gets a table in the database using its name.
 	///
 	/// Creates one if it doesn't exist.
+	///
+	/// # Example
+	///
+	/// ```rust
+	/// # use nosqlite::{Connection, Table};
+	/// # let connection = Connection::in_memory()?;
+	/// let table = connection.table("people")?;
+	/// # Ok::<(), rusqlite::Error>(())
+	/// ```
 	pub fn table<T: Into<String>>(&self, table: T) -> SqliteResult<Table<i64>> {
 		let table = table.into();
 		self.connection.execute(&format!(r#"
@@ -93,6 +123,22 @@ impl<I: FromSql> Table<I> {
 	}
 
 	/// Iterate through all the entries in the table.
+	///
+	/// # Example
+	///
+	/// ```rust
+	/// # use nosqlite::{Connection, field, json, Table};
+	/// # let connection = Connection::in_memory()?;
+	/// let table = connection.table("people")?;
+	/// table.insert(json!({"name": "Hiruna", "age": 19}), &connection)?;
+	/// table.insert(json!({"name": "Bobby", "age": 13}), &connection)?;
+	/// let data = table.iter()
+	/// 	.filter(field("age").gte(18))
+	/// 	.fields::<(String, u8), _, _, _>(&["name", "age"], &connection)?;
+	/// assert_eq!(data.len(), 1);
+	/// assert!(data[0].1 > 18);
+	/// # Ok::<(), rusqlite::Error>(())
+	/// ```
 	pub fn iter(&self) -> Iterator<I, ()> {
 		Iterator {
 			data_key: &self.data,
@@ -107,7 +153,26 @@ impl<I: FromSql> Table<I> {
 
 	/// Inserts a JSON object into the data column of the table.
 	///
+	/// Multiple JSON objects that are exactly the same can be inserted.
+	///
 	/// **Warning**: If your table has other columns that are not nullable, then you should not use this.
+	///
+	/// # Example
+	///
+	/// ```
+	/// # use nosqlite::{Connection, json, Table};
+	/// # let connection = Connection::in_memory()?;
+	/// // This table is empty
+	/// let table = connection.table("people")?;
+	/// // We'll insert two JSON objects which are exactly the same
+	/// let json = json!({"name": "Hiruna", "age": 19});
+	/// table.insert(&json, &connection)?;
+	/// table.insert(&json, &connection)?;
+	/// // Now we'll check how many entries the table has
+	/// let length = table.iter().id(&connection)?.len();
+	/// assert_eq!(length, 2);
+	/// # Ok::<(), rusqlite::Error>(())
+	/// ```
 	pub fn insert<T: Serialize, C: AsRef<SqliteConnection>>(&self, data: T, connection: C) -> SqliteResult<()> {
 		connection.as_ref().prepare(&format!("INSERT INTO {} ({}) VALUES (?)", self.name, self.data))?
 			.execute(&[&Json(data)])?;
@@ -116,6 +181,26 @@ impl<I: FromSql> Table<I> {
 }
 impl <I: FromSql + ToSql> Table<I> {
 	/// Gets a JSON object using a id from the id column.
+	///
+	/// # Example
+	///
+	/// ```
+	/// # use nosqlite::{Connection, json, Json, Table};
+	/// # use serde::{Deserialize, Serialize};
+	/// # let connection = Connection::in_memory()?;
+	/// #[derive(Deserialize, Serialize)]
+	/// struct Person {
+	/// 	name: String,
+	/// }
+	/// // The table of these ids are integers
+	/// let table = connection.table("people")?;
+	/// table.insert(&Person {name: "Hiruna".into()}, &connection)?;
+	/// table.insert(&Person {name: "Bobby".into()}, &connection)?;
+	/// // Now we'll get the 2nd entry from the table.
+	/// let bobby: Json<Person> = table.get(2).data(&connection)?.unwrap();
+	/// assert_eq!(bobby.as_ref().name, "Bobby");
+	/// # Ok::<(), rusqlite::Error>(())
+	/// ```
 	pub fn get(&self, id: I) -> Get<I> { Get { id, data_key: &self.data, id_key: &self.id, table: &self.name } }
 }
 
@@ -133,38 +218,42 @@ fn format_key(key: &str) -> String {
 	prepend
 }
 
-/// A struct that represents AND.
-///
-/// How this is used depends on the situation.
-pub struct And<A, B> {
-	/// The first struct to be used.
-	pub first: A,
-	/// The second struct to be used.
-	pub second: B,
-}
+pub mod util {
+	//! A module for utility structs that don't do much on their own
 
-/// A struct that represents equality.
-pub struct Eq<A, B> {
-	/// The variable that is being checked/set.
-	pub variable: A,
-	/// The value that is being checked for/set.
-	pub value: B,
-}
+	/// A struct that represents AND.
+	///
+	/// How this is used depends on the situation.
+	pub struct And<A, B> {
+		/// The first struct to be used.
+		pub first: A,
+		/// The second struct to be used.
+		pub second: B,
+	}
 
-/// A struct that compares whether `G > L`.
-pub struct Gt<G, L> {
-	/// The greater value.
-	pub greater: G,
-	/// The lesser value.
-	pub lesser: L,
-}
+	/// A struct that represents equality.
+	pub struct Eq<A, B> {
+		/// The variable that is being checked/set.
+		pub variable: A,
+		/// The value that is being checked for/set.
+		pub value: B,
+	}
 
-/// A struct that compares whether `G >= L`.
-pub struct Gte<G, L> {
-	/// The greater value.
-	pub greater: G,
-	/// The lesser or equal value.
-	pub lesser: L,
+	/// A struct that compares whether `G > L`.
+	pub struct Gt<G, L> {
+		/// The greater value.
+		pub greater: G,
+		/// The lesser value.
+		pub lesser: L,
+	}
+
+	/// A struct that compares whether `G >= L`.
+	pub struct Gte<G, L> {
+		/// The greater value.
+		pub greater: G,
+		/// The lesser or equal value.
+		pub lesser: L,
+	}
 }
 
 /// Represents an operation to get a JSON object using its id key.
@@ -177,6 +266,25 @@ pub struct Get<'a, I: FromSql + ToSql> {
 }
 impl<'a, I: FromSql + ToSql> Get<'a, I> {
 	/// Gets only the JSON object, deserialising it into the struct provided.
+	///
+	/// # Example
+	///
+	/// ```rust
+	/// # use nosqlite::{Connection, Json, Table};
+	/// # use serde::{Deserialize, Serialize};
+	/// # let connection = Connection::in_memory()?;
+	/// # let table = connection.table("people")?;
+	/// #[derive(Deserialize, Serialize)]
+	/// struct Person {
+	/// 	name: String,
+	/// }
+	/// // Assume empty table
+	/// table.insert(Person{ name: "Hiruna".into() }, &connection)?;
+	/// table.insert(Person{ name: "Bobby".into() }, &connection)?;
+	/// let bobby: Json<Person> = table.get(2).data(&connection)?.unwrap();
+	/// assert_eq!(bobby.as_ref().name, "Bobby");
+	/// # rusqlite::Result::Ok(())
+	/// ```
 	pub fn data<T: DeserializeOwned, C: AsRef<SqliteConnection>>(&self, connection: C) -> SqliteResult<Option<Json<T>>> {
 		connection.as_ref().query_row(
 			&format!("SELECT {} FROM {} WHERE {} = ?", self.data_key, self.table, self.id_key),
@@ -185,6 +293,26 @@ impl<'a, I: FromSql + ToSql> Get<'a, I> {
 		).optional()
 	}
 	/// Gets both the id and the JSON object.
+	///
+	/// # Example
+	///
+	/// ```rust
+	/// # use nosqlite::{Connection, Entry, Table};
+	/// # use serde::{Deserialize, Serialize};
+	/// # let connection = Connection::in_memory()?;
+	/// # let table = connection.table("people")?;
+	/// #[derive(Deserialize, Serialize)]
+	/// struct Person {
+	/// 	name: String,
+	/// }
+	/// // Assume empty table
+	/// table.insert(Person{ name: "Hiruna".into() }, &connection)?;
+	/// table.insert(Person{ name: "Bobby".into() }, &connection)?;
+	/// let bobby: Entry<i64, Person> = table.get(2).entry(&connection)?.unwrap();
+	/// assert_eq!(bobby.data.as_ref().name, "Bobby");
+	/// assert_eq!(bobby.id, 2);
+	/// # rusqlite::Result::Ok(())
+	/// ```
 	pub fn entry<T: DeserializeOwned, C: AsRef<SqliteConnection>>(&self, connection: C) -> SqliteResult<Option<Entry<I, T>>> {
 		connection.as_ref().query_row(
 			&format!("SELECT {}, {} FROM {} WHERE {} = ?", self.id_key, self.data_key, self.table, self.id_key),
@@ -193,15 +321,53 @@ impl<'a, I: FromSql + ToSql> Get<'a, I> {
 		).optional()
 	}
 	/// Gets only the id of the entry.
+	///
+	/// # Example
+	///
+	/// ```rust
+	/// # use nosqlite::{Connection, Entry, Table};
+	/// # use serde::{Deserialize, Serialize};
+	/// # let connection = Connection::in_memory()?;
+	/// # let table = connection.table("people")?;
+	/// #[derive(Deserialize, Serialize)]
+	/// struct Person {
+	/// 	name: String,
+	/// }
+	/// // Assume empty table
+	/// table.insert(Person{ name: "Hiruna".into() }, &connection)?;
+	/// table.insert(Person{ name: "Bobby".into() }, &connection)?;
+	/// let bobby_id: i64 = table.get(2).id(&connection)?.unwrap();
+	/// assert_eq!(bobby_id, 2);
+	/// # rusqlite::Result::Ok(())
+	/// ```
 	pub fn id<C: AsRef<SqliteConnection>>(&self, connection: C) -> SqliteResult<Option<I>> {
 		connection.as_ref().query_row(
-			&format!("SELECT {} FROM {} WHERE {} = ?", self.data_key, self.table, self.id_key),
+			&format!("SELECT {} FROM {} WHERE {} = ?", self.id_key, self.table, self.id_key),
 			&[&self.id],
 			|row| row.get(0)
 		).optional()
 	}
 	/// Extracts a possibly nested field in the JSON object.
-	pub fn key<T: FromSql, C: AsRef<SqliteConnection>>(&self, key: &str, connection: C) -> SqliteResult<Option<T>> {
+	///
+	/// # Example
+	///
+	/// ```rust
+	/// # use nosqlite::{Connection, Entry, Table};
+	/// # use serde::{Deserialize, Serialize};
+	/// # let connection = Connection::in_memory()?;
+	/// # let table = connection.table("people")?;
+	/// #[derive(Deserialize, Serialize)]
+	/// struct Person {
+	/// 	name: String,
+	/// }
+	/// // Assume empty table
+	/// table.insert(Person{ name: "Hiruna".into() }, &connection)?;
+	/// table.insert(Person{ name: "Bobby".into() }, &connection)?;
+	/// let bobby: String = table.get(2).field("name", &connection)?.unwrap();
+	/// assert_eq!(bobby, "Bobby");
+	/// # rusqlite::Result::Ok(())
+	/// ```
+	pub fn field<T: FromSql, C: AsRef<SqliteConnection>>(&self, key: &str, connection: C) -> SqliteResult<Option<T>> {
 		let key = format_key(key);
 		connection.as_ref().query_row(
 			&format!("SELECT json_extract({}, \"{}\") FROM {} WHERE {} = ?", self.data_key, key, self.table, self.id_key),
@@ -212,6 +378,10 @@ impl<'a, I: FromSql + ToSql> Get<'a, I> {
 }
 
 /// Represents a field in a JSON object.
+///
+/// Create this using the [`field`] method.
+///
+/// [`field`]: fn.field.html
 pub struct Field(pub String);
 /// Creates a representation of a field in a JSON object.
 pub fn field(field: &str) -> Field { Field(format_key(field)) }
@@ -315,6 +485,9 @@ impl<T> Json<T> {
 		let Self(data) = self;
 		data
 	}
+}
+impl<T> AsRef<T> for Json<T> {
+	fn as_ref(&self) -> &T { &self.0 }
 }
 impl<T: DeserializeOwned> FromSql for Json<T> {
 	fn column_result(value: ValueRef) -> FromSqlResult<Self> {
