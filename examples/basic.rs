@@ -1,4 +1,4 @@
-use nosqlite::{Connection, field, json};
+use nosqlite::{Connection, field};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -13,9 +13,6 @@ fn main() {
 	let connection = Connection::open("./test.db").unwrap();
 	// If no table within the database exists with the name, it is created.
 	let table = connection.table("test").unwrap();
-	table.iter()
-		.patch(json!({"age": 19}), &connection)
-		.unwrap();
 	let data: Vec<(String, u8)> = table.iter()
 		.filter(field("age").eq(19))
 		.skip(0)

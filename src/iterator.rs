@@ -99,14 +99,36 @@ impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
 		)
 	}
 
+	/// Inserts a field into the JSON object with a given value.
+	///
+	/// If the field already exists, nothing will happen.
+	/// If you wish for it to be overwritten, use [`set`] instead.
+	///
+	/// [`set`]: #method.set
+	pub fn insert<T, C>(&self, field: &str, value: T, connection: C) -> SqliteResult<()>
+	where
+		T: ToSql,
+		C: AsRef<SqliteConnection>,
+	{
+		let path = format_key(field);
+		let set_value = format!("{} = json_insert({},\"{}\",:value)", self.data_key, self.data_key, path);
+		connection.as_ref().execute_named(
+			&format!("UPDATE {} SET {} {}", self.table_key, set_value, self.make_clauses()),
+			&[(":value", &value)]
+		).map(|_|())
+	}
+
 	/// Uses a JSON object update or create fields in the entry's JSON object.
 	///
 	/// Any fields that do not exist will be created.
 	/// This unfortunately does not work with Arrays. It will replace Arrays instead.
+	/// To insert into Arrays, use [`insert`] instead.
+	///
+	/// [`insert`]: #method.insert
 	pub fn patch<T, C>(&self, value: T, connection: C) -> SqliteResult<()>
-		where
-			T: Serialize,
-			C: AsRef<SqliteConnection>,
+	where
+		T: Serialize,
+		C: AsRef<SqliteConnection>,
 	{
 		let set_value = format!("{} = json_patch({},:value)", self.data_key, self.data_key);
 		connection.as_ref().execute_named(
@@ -115,9 +137,29 @@ impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
 		).map(|_|())
 	}
 
+	/// Replaces a field in a JSON object with a given value.
+	///
+	/// Will only replace an already existing field.
+	pub fn replace<T, C>(&self, field: &str, value: T, connection: C) -> SqliteResult<()>
+	where
+		T: ToSql,
+		C: AsRef<SqliteConnection>,
+	{
+		let path = format_key(field);
+		let set_value = format!("{} = json_replace({},\"{}\",:value)", self.data_key, self.data_key, path);
+		connection.as_ref().execute_named(
+			&format!("UPDATE {} SET {} {}", self.table_key, set_value, self.make_clauses()),
+			&[(":value", &value)]
+		).map(|_|())
+	}
+
 	/// Sets a field in a JSON object to a given field.
 	///
 	/// If the field does not exist, it will be created.
+	/// If the field does already exist, it will be overwritten.
+	/// If you wish for the value to not be overwritten, use [`insert`] instead.
+	///
+	/// [`insert`]: #method.insert
 	pub fn set<T, C>(&self, field: &str, value: T, connection: C) -> SqliteResult<()>
 	where
 		T: ToSql,
