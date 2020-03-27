@@ -223,9 +223,15 @@ pub mod util {
 	//! A module for utility structs that don't do much on their own
 
 	/// A struct that represents AND.
-	///
-	/// How this is used depends on the situation.
 	pub struct And<A, B> {
+		/// The first struct to be used.
+		pub first: A,
+		/// The second struct to be used.
+		pub second: B,
+	}
+
+	/// A struct that represents OR.
+	pub struct Or<A, B> {
 		/// The first struct to be used.
 		pub first: A,
 		/// The second struct to be used.
@@ -254,6 +260,20 @@ pub mod util {
 		pub greater: G,
 		/// The lesser or equal value.
 		pub lesser: L,
+	}
+
+	/// A struct that compares using the SQL `LIKE` comparison.
+	pub struct Like<A, S: std::fmt::Display> {
+		/// The variable to be compared.
+		pub variable: A,
+		/// Whether to match the start.
+		pub matches_start: bool,
+		/// The value to compare.
+		///
+		/// You can also put `%` characters into the string to match the middle.
+		pub value: S,
+		/// Whether to match the end.
+		pub matches_end: bool,
 	}
 }
 
@@ -407,6 +427,10 @@ impl Field {
 	pub fn lte<T: Serialize>(self, value: T) -> Gte<String, Field> {
 		Gte { lesser: self, greater: to_string(&value).unwrap() }
 	}
+	/// Uses the SQL like comparison operator.
+	pub fn like<S: std::fmt::Display>(self, matches_start: bool, value: S, matches_end: bool) -> Like<Field, S> {
+		Like { variable: self, matches_start, value, matches_end }
+	}
 	fn key<'a, A, B>(&self, iter: &Iterator<'a, A, B>) -> String {
 		format!("json_extract({}, \"{}\")", iter.data_key, self.0)
 	}
@@ -418,8 +442,15 @@ pub trait Filter {
 	fn where_<'a, A, B>(&self, _: &Iterator<'a, A, B>) -> Option<String>;
 	/// Allows chaining of multiple conditions.
 	fn and<B: Filter>(self, second: B) -> And<Self, B>
-		where Self: std::marker::Sized {
+	where Self: std::marker::Sized
+	{
 		And { first: self, second }
+	}
+	/// Allows another possible condition.
+	fn or<B: Filter>(self, second: B) -> Or<Self, B>
+	where Self: std::marker::Sized
+	{
+		Or { first: self, second }
 	}
 }
 impl Filter for () {
@@ -430,7 +461,14 @@ impl Filter for String {
 }
 impl<A: Filter, B: Filter> Filter for And<A, B> {
 	fn where_<'a, C, D>(&self, iter: &Iterator<'a, C, D>) -> Option<String> {
-		Some(format!("{} AND {}",
+		Some(format!("({} AND {})",
+			self.first.where_(iter).unwrap_or_default(),
+			self.second.where_(iter).unwrap_or_default()))
+	}
+}
+impl<A: Filter, B: Filter> Filter for Or<A, B> {
+	fn where_<'a, C, D>(&self, iter: &Iterator<'a, C, D>) -> Option<String> {
+		Some(format!("({} OR {})",
 			self.first.where_(iter).unwrap_or_default(),
 			self.second.where_(iter).unwrap_or_default()))
 	}
@@ -458,6 +496,14 @@ impl Filter for Gt<String, Field> {
 impl Filter for Gte<String, Field> {
 	fn where_<'a, A, B>(&self, iter: &Iterator<'a, A, B>) -> Option<String> {
 		Some(format!("{} <= {}", self.lesser.key(iter), self.greater))
+	}
+}
+impl<S: std::fmt::Display> Filter for Like<Field, S> {
+	fn where_<'a, A, B>(&self, iter: &Iterator<'a, A, B>) -> Option<String> {
+		Some(format!("{} LIKE '{}{}{}'", self.variable.key(iter),
+			if self.matches_start { "%" } else { "" },
+		    self.value,
+		    if self.matches_end { "%" } else { "" }))
 	}
 }
 

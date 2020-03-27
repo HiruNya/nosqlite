@@ -14,7 +14,7 @@ fn main() {
 	// If no table within the database exists with the name, it is created.
 	let table = connection.table("test").unwrap();
 	let data: Vec<(String, u8)> = table.iter()
-		.filter(field("age").gt(18))
+		.filter(field("age").gte(18))
 		.skip(0)
 		.take(2)
 		.fields(&["first_name", "age"], &connection)
