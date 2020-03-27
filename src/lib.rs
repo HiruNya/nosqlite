@@ -7,7 +7,7 @@
 #![allow(clippy::tabs_in_doc_comments)]
 
 use rusqlite::{Connection as SqliteConnection, Error as SqliteError, NO_PARAMS, OptionalExtension,
-				Result as SqliteResult,
+				Result as SqliteResult, Row,
 				types::{FromSqlError, FromSqlResult, ToSqlOutput, Value, ValueRef}};
 use serde::{Deserialize, de::DeserializeOwned, Serialize};
 use serde_json::to_string;
@@ -186,7 +186,7 @@ impl <I: FromSql + ToSql> Table<I> {
 	/// # Example
 	///
 	/// ```
-	/// # use nosqlite::{Connection, json, Json, Table};
+	/// # use nosqlite::{Connection, json, Table};
 	/// # use serde::{Deserialize, Serialize};
 	/// # let connection = Connection::in_memory()?;
 	/// #[derive(Deserialize, Serialize)]
@@ -198,11 +198,13 @@ impl <I: FromSql + ToSql> Table<I> {
 	/// table.insert(&Person {name: "Hiruna".into()}, &connection)?;
 	/// table.insert(&Person {name: "Bobby".into()}, &connection)?;
 	/// // Now we'll get the 2nd entry from the table.
-	/// let bobby: Json<Person> = table.get(2).data(&connection)?.unwrap();
-	/// assert_eq!(bobby.as_ref().name, "Bobby");
+	/// let bobby: Person = table.get(2).data(&connection)?.unwrap();
+	/// assert_eq!(bobby.name, "Bobby");
 	/// # Ok::<(), rusqlite::Error>(())
 	/// ```
-	pub fn get(&self, id: I) -> Get<I> { Get { id, data_key: &self.data, id_key: &self.id, table: &self.name } }
+	pub fn get(&self, id: I) -> Get<I> {
+		Get { id, data_key: &self.data, id_key: &self.id, table: &self.name }
+	}
 }
 
 fn format_key(key: &str) -> String {
@@ -291,7 +293,7 @@ impl<'a, I: FromSql + ToSql> Get<'a, I> {
 	/// # Example
 	///
 	/// ```rust
-	/// # use nosqlite::{Connection, Json, Table};
+	/// # use nosqlite::{Connection, Table};
 	/// # use serde::{Deserialize, Serialize};
 	/// # let connection = Connection::in_memory()?;
 	/// # let table = connection.table("people")?;
@@ -302,16 +304,16 @@ impl<'a, I: FromSql + ToSql> Get<'a, I> {
 	/// // Assume empty table
 	/// table.insert(Person{ name: "Hiruna".into() }, &connection)?;
 	/// table.insert(Person{ name: "Bobby".into() }, &connection)?;
-	/// let bobby: Json<Person> = table.get(2).data(&connection)?.unwrap();
-	/// assert_eq!(bobby.as_ref().name, "Bobby");
+	/// let bobby: Person = table.get(2).data(&connection)?.unwrap();
+	/// assert_eq!(bobby.name, "Bobby");
 	/// # rusqlite::Result::Ok(())
 	/// ```
-	pub fn data<T: DeserializeOwned, C: AsRef<SqliteConnection>>(&self, connection: C) -> SqliteResult<Option<Json<T>>> {
+	pub fn data<T: DeserializeOwned, C: AsRef<SqliteConnection>>(&self, connection: C) -> SqliteResult<Option<T>> {
 		connection.as_ref().query_row(
 			&format!("SELECT {} FROM {} WHERE {} = ?", self.data_key, self.table, self.id_key),
 			&[&self.id],
 			|row| row.get(0)
-		).optional()
+		).map(Json::unwrap).optional()
 	}
 	/// Gets both the id and the JSON object.
 	///
@@ -330,7 +332,7 @@ impl<'a, I: FromSql + ToSql> Get<'a, I> {
 	/// table.insert(Person{ name: "Hiruna".into() }, &connection)?;
 	/// table.insert(Person{ name: "Bobby".into() }, &connection)?;
 	/// let bobby: Entry<i64, Person> = table.get(2).entry(&connection)?.unwrap();
-	/// assert_eq!(bobby.data.as_ref().name, "Bobby");
+	/// assert_eq!(bobby.data.name, "Bobby");
 	/// assert_eq!(bobby.id, 2);
 	/// # rusqlite::Result::Ok(())
 	/// ```
@@ -338,7 +340,7 @@ impl<'a, I: FromSql + ToSql> Get<'a, I> {
 		connection.as_ref().query_row(
 			&format!("SELECT {}, {} FROM {} WHERE {} = ?", self.id_key, self.data_key, self.table, self.id_key),
 			&[&self.id],
-			|row| Ok(Entry { id: row.get(0)?, data: row.get(1)? })
+			Entry::from_row
 		).optional()
 	}
 	/// Gets only the id of the entry.
@@ -513,12 +515,19 @@ pub struct Entry<K, V> {
 	/// The id of the entry.
 	pub id: K,
 	/// The JSON object.
-	pub data: Json<V>,
+	pub data: V,
 }
 impl<K, V> Entry<K, V> {
 	/// Gets the JSON object out of the entry.
 	pub fn data(&self) -> &V {
-		&self.data.0
+		&self.data
+	}
+}
+impl<K: FromSql, V: DeserializeOwned> Entry<K, V> {
+	fn from_row(row: &Row) -> SqliteResult<Entry<K, V>> {
+		let id = row.get(0)?;
+		let data = row.get::<_, Json<V>>(1)?.unwrap();
+		Ok(Entry{ id, data })
 	}
 }
 

@@ -23,7 +23,7 @@ impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
 	/// # Example
 	///
 	/// ```
-	/// # use nosqlite::{Connection, Json, Table};
+	/// # use nosqlite::{Connection, Table};
 	/// # use serde::{Deserialize, Serialize};
 	/// # let connection = Connection::in_memory()?;
 	/// # let table = connection.table("people")?;
@@ -31,13 +31,13 @@ impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
 	/// # struct Person {
 	/// # 	name: String,
 	/// # }
-	/// let people: Vec<Json<Person>> = table.iter().data(&connection)?;
+	/// let people: Vec<Person> = table.iter().data(&connection)?;
 	/// # rusqlite::Result::Ok(())
 	/// ```
-	pub fn data<T: DeserializeOwned, C: AsRef<SqliteConnection>>(&self, connection: C) -> SqliteResult<Vec<Json<T>>> {
+	pub fn data<T: DeserializeOwned, C: AsRef<SqliteConnection>>(&self, connection: C) -> SqliteResult<Vec<T>> {
 		self.execute_get::<_, _, _>(
 			&format!("SELECT {}", self.data_key),
-			get_first_column,
+			get_first_column(Json::unwrap),
 			connection
 		)
 	}
@@ -64,8 +64,8 @@ impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
 			|mut statement, params| {
 				Ok(statement.query_map_named(
 					&params,
-					|row| Ok(Entry { id: row.get(0)?, data: row.get(1)? })
-				)?.filter_map(|result| result.ok()).collect::<Vec<_>>())
+					Entry::from_row,
+				)?.filter_map(Result::ok).collect::<Vec<_>>())
 			},
 			connection
 		)
@@ -90,7 +90,7 @@ impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
 	pub fn id<C: AsRef<SqliteConnection>>(&self, connection: C) -> SqliteResult<Vec<I>> {
 		self.execute_get::<_, _, _>(
 			&format!("SELECT {}", self.id_key),
-			get_first_column,
+			get_first_column(no_map),
 			connection
 		)
 	}
@@ -118,7 +118,7 @@ impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
 	pub fn field<T: FromSql, C: AsRef<SqliteConnection>>(&self, field_: &str, connection: C) -> SqliteResult<Vec<T>> {
 		self.execute_get::<_, _, _>(
 			&format!("SELECT {}", field(field_).key(&self)),
-			get_first_column,
+			get_first_column(no_map),
 			connection
 		)
 	}
@@ -160,12 +160,7 @@ impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
 			});
 		self.execute_get::<_, _, _>(
 			&format!("SELECT json_extract({}{})", self.data_key, fields),
-			|mut statement, params| {
-				Ok(statement.query_map_named(
-					&params,
-					|row| -> SqliteResult<Json<T>> { row.get(0) }
-				)?.filter_map(|result| result.ok()).map(Json::unwrap).collect::<Vec<_>>())
-			},
+			get_first_column(Json::unwrap),
 			connection
 		)
 	}
@@ -219,7 +214,7 @@ impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
 	/// # Example
 	///
 	/// ```
-	/// # use nosqlite::{Connection, Entry, json, Json, Table};
+	/// # use nosqlite::{Connection, Entry, json, Table};
 	/// # use serde::{Deserialize, Serialize};
 	/// # let connection = Connection::in_memory()?;
 	/// # let table = connection.table("people")?;
@@ -229,12 +224,12 @@ impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
 	/// // `patch` overwrites any field
 	/// // arrays are completely replace
 	/// table.iter().patch(json!({ "age": 13, "grades": [9] }), &connection);
-	/// let people: Vec<(u8, Json<Vec<u8>>)> = table.iter().fields(&["age", "grades"], &connection)?;
+	/// let people: Vec<(u8, Vec<u8>)> = table.iter().fields(&["age", "grades"], &connection)?;
 	/// for person in people.into_iter() {
 	/// 	// `age` field was overwritten and set to 13
 	/// 	assert_eq!(person.0, 13);
 	/// 	// `grades` field was overwritten and set to an array of one element
-	/// 	assert_eq!(person.1.as_ref().as_ref(), [9])
+	/// 	assert_eq!(person.1, [9])
 	/// }
 	/// # rusqlite::Result::Ok(())
 	/// ```
@@ -440,12 +435,17 @@ impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
 	}
 }
 
-fn get_first_column<T>(mut statement: Statement, params: Vec<(&str, &dyn ToSql)>) -> SqliteResult<Vec<T>>
-	where T: FromSql
+fn get_first_column<T, A, F>(map: F) -> impl Fn(Statement, Vec<(&str, &dyn ToSql)>) -> SqliteResult<Vec<T>>
+where
+	A: FromSql,
+	F: Fn(A) -> T,
 {
-	Ok(
-		statement.query_map_named(&params,|row| row.get(0))?
-			.filter_map(|result| result.ok())
-			.collect()
-	)
+	move |mut statement, params| {
+		Ok(statement.query_map_named(&params, |row| row.get(0))?
+			.filter_map(Result::ok)
+			.map(&map)
+			.collect())
+	}
 }
+
+fn no_map<T>(in_: T) -> T { in_ }
