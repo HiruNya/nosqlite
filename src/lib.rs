@@ -4,6 +4,7 @@
 //!
 //! [`Connection`]: struct.Connection.html
 #![warn(missing_docs)]
+#![allow(clippy::tabs_in_doc_comments)]
 
 use rusqlite::{Connection as SqliteConnection, Error as SqliteError, NO_PARAMS, OptionalExtension,
 				Result as SqliteResult,
@@ -143,7 +144,7 @@ impl<I: FromSql> Table<I> {
 		Iterator {
 			data_key: &self.data,
 			id_key: &self.id,
-			id_type: self.id_type.clone(),
+			id_type: self.id_type,
 			limit: None,
 			offset: None,
 			table_key: &self.name,

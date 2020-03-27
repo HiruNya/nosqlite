@@ -65,7 +65,7 @@ impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
 				Ok(statement.query_map_named(
 					&params,
 					|row| Ok(Entry { id: row.get(0)?, data: row.get(1)? })
-				)?.into_iter().filter_map(|result| result.ok()).collect::<Vec<_>>())
+				)?.filter_map(|result| result.ok()).collect::<Vec<_>>())
 			},
 			connection
 		)
@@ -143,7 +143,7 @@ impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
 	/// assert_eq!(people[0], ("Hiruna".into(), "Jayamanne".into()));
 	/// # rusqlite::Result::Ok(())
 	/// ```
-	pub fn fields<'b, T, F, C, S>(&self, fields: F, connection: C) -> SqliteResult<Vec<T>>
+	pub fn fields<T, F, C, S>(&self, fields: F, connection: C) -> SqliteResult<Vec<T>>
 	where
 		F: IntoIterator<Item=S>,
 		S: AsRef<str>,
@@ -164,7 +164,7 @@ impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
 				Ok(statement.query_map_named(
 					&params,
 					|row| -> SqliteResult<Json<T>> { row.get(0) }
-				)?.into_iter().filter_map(|result| result.ok()).map(Json::unwrap).collect::<Vec<_>>())
+				)?.filter_map(|result| result.ok()).map(Json::unwrap).collect::<Vec<_>>())
 			},
 			connection
 		)
@@ -444,7 +444,7 @@ fn get_first_column<T>(mut statement: Statement, params: Vec<(&str, &dyn ToSql)>
 	where T: FromSql
 {
 	Ok(
-		statement.query_map_named(&params,|row| row.get(0))?.into_iter()
+		statement.query_map_named(&params,|row| row.get(0))?
 			.filter_map(|result| result.ok())
 			.collect()
 	)
