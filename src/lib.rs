@@ -242,7 +242,7 @@ fn format_key(key: &str) -> String {
 	if chars.next() != Some('$') {
 		prepend.push('$');
 		let c = chars.next();
-		if c != Some('.') && c.is_some() {
+		if c != Some('.') && (c.is_some() || key.len() == 1) {
 			prepend.push('.');
 		}
 	}
@@ -269,8 +269,19 @@ pub mod util {
 		pub second: B,
 	}
 
+	/// A struct that represents NOT.
+	pub struct Not<A>(pub A);
+
 	/// A struct that represents equality.
 	pub struct Eq<A, B> {
+		/// The variable that is being checked/set.
+		pub variable: A,
+		/// The value that is being checked for/set.
+		pub value: B,
+	}
+
+	/// A struct that represents inequality.
+	pub struct Neq<A, B> {
 		/// The variable that is being checked/set.
 		pub variable: A,
 		/// The value that is being checked for/set.
@@ -306,6 +317,9 @@ pub mod util {
 		/// Whether to match the end.
 		pub matches_end: bool,
 	}
+
+	/// A struct that checks whether a field exists and if that field is not null.
+	pub struct Exists<A>(pub A);
 }
 
 /// Represents an operation to get a JSON object using its id key.
@@ -464,38 +478,214 @@ impl<'a, I: FromSql + ToSql> Operation<'a, I> {
 
 /// This can be used for filters or getting fields
 pub trait Key {
-	/// Produces the string that will be used by SQL
+	/// Produces the string that will be used by SQL.
 	fn key<A, B>(&self, iterator: &Iterator<A, B>) -> String;
-	/// Takes in a value and serialises it, the serialised output is used in the eventual operation.
+
+	/// Compares for equality.
+	///
+	/// # Example
+	///
+	/// ```
+	/// # use nosqlite::{Connection, field, json, Key};
+	/// # let connection = Connection::in_memory()?;
+	/// # let table = connection.table("test")?;
+	/// table.insert(json!({"number": 3}), &connection)?;
+	/// table.insert(json!({"number": 9}), &connection)?;
+	/// table.insert(json!({"number": 2}), &connection)?;
+	/// table.insert(json!({"number": 4}), &connection)?;
+	/// table.insert(json!({"number": 3}), &connection)?;
+	/// // Get only the entries where the number is equal to 3
+	/// let numbers: Vec<u8> = table.iter()
+	/// 	.filter(field("number").eq(3)).field("number", &connection)?;
+	/// // Only 2 entries should've matched the filter
+	/// assert_eq!(numbers.len(), 2);
+	/// // They both should be equal to 3
+	/// assert_eq!(numbers.into_iter().any(|number| number != 3), false);
+	/// # rusqlite::Result::Ok(())
+	/// ```
 	fn eq<T: Serialize>(self, value: T) -> Eq<Self, String>
 	where Self: Sized {
 		Eq { variable: self, value: to_string(&value).unwrap() }
 	}
-	/// Takes in a value and compares if it is less than the variable.
+
+	/// Compares for inequality.
+	///
+	/// # Example
+	///
+	/// ```
+	/// # use nosqlite::{Connection, field, json, Key};
+	/// # let connection = Connection::in_memory()?;
+	/// # let table = connection.table("test")?;
+	/// table.insert(json!({"number": 3}), &connection)?;
+	/// table.insert(json!({"number": 9}), &connection)?;
+	/// table.insert(json!({"number": 2}), &connection)?;
+	/// table.insert(json!({"number": 4}), &connection)?;
+	/// table.insert(json!({"number": 3}), &connection)?;
+	/// // Get only the entries where the number is not equal to 3
+	/// let numbers: Vec<u8> = table.iter()
+	/// 	.filter(field("number").neq(3)).field("number", &connection)?;
+	/// // 3 entries should've matched the filter
+	/// assert_eq!(numbers.len(), 3);
+	/// // They both should be equal to 3
+	/// assert!(!numbers.into_iter().any(|number| number == 3));
+	/// # rusqlite::Result::Ok(())
+	/// ```
+	fn neq<T: Serialize>(self, value: T) -> Neq<Self, String>
+		where Self: Sized {
+		Neq { variable: self, value: to_string(&value).unwrap() }
+	}
+	/// Compares if it is greater than the value.
+	///
+	/// # Example
+	///
+	/// ```
+	/// # use nosqlite::{Connection, field, json, Key};
+	/// # let connection = Connection::in_memory()?;
+	/// # let table = connection.table("test")?;
+	/// table.insert(json!({"number": 3}), &connection)?;
+	/// table.insert(json!({"number": 9}), &connection)?;
+	/// table.insert(json!({"number": 2}), &connection)?;
+	/// table.insert(json!({"number": 4}), &connection)?;
+	/// table.insert(json!({"number": 3}), &connection)?;
+	/// // Get only the entries where the number is greater than 4
+	/// let numbers: Vec<u8> = table.iter()
+	/// 	.filter(field("number").gt(4)).field("number", &connection)?;
+	/// // Only 9 is bigger than 4
+	/// assert_eq!(numbers.len(), 1);
+	/// assert!(numbers[0] > 4);
+	/// # rusqlite::Result::Ok(())
+	/// ```
 	fn gt<T: Serialize>(self, value: T) -> Gt<Self, String>
 	where Self: Sized{
 		Gt { greater: self, lesser: to_string(&value).unwrap() }
 	}
-	/// Takes in a value and compares if it is less than or equal to the variable.
+	/// Compares if it is greater than or equal to the value.
+	///
+	/// # Example
+	///
+	/// ```
+	/// # use nosqlite::{Connection, field, json, Key};
+	/// # let connection = Connection::in_memory()?;
+	/// # let table = connection.table("test")?;
+	/// table.insert(json!({"number": 3}), &connection)?;
+	/// table.insert(json!({"number": 9}), &connection)?;
+	/// table.insert(json!({"number": 2}), &connection)?;
+	/// table.insert(json!({"number": 4}), &connection)?;
+	/// table.insert(json!({"number": 3}), &connection)?;
+	/// // Get only the entries where the number is greater than or equal to 4
+	/// let numbers: Vec<u8> = table.iter()
+	/// 	.filter(field("number").gte(4)).field("number", &connection)?;
+	/// assert_eq!(numbers.len(), 2);
+	/// assert!(!numbers.into_iter().any(|number| number < 4));
+	/// # rusqlite::Result::Ok(())
+	/// ```
 	fn gte<T: Serialize>(self, value: T) -> Gte<Self, String>
 	where Self: Sized {
 		Gte { greater: self, lesser: to_string(&value).unwrap() }
 	}
-	/// Takes in a value and compares if it is greater than the variable.
+	/// Compares if it is less than the value.
+	///
+	/// # Example
+	///
+	/// ```
+	/// # use nosqlite::{Connection, field, json, Key};
+	/// # let connection = Connection::in_memory()?;
+	/// # let table = connection.table("test")?;
+	/// table.insert(json!({"number": 3}), &connection)?;
+	/// table.insert(json!({"number": 9}), &connection)?;
+	/// table.insert(json!({"number": 2}), &connection)?;
+	/// table.insert(json!({"number": 4}), &connection)?;
+	/// table.insert(json!({"number": 3}), &connection)?;
+	/// // Get only the entries where the number is less than 4
+	/// let numbers: Vec<u8> = table.iter()
+	/// 	.filter(field("number").lt(4)).field("number", &connection)?;
+	/// assert_eq!(numbers.len(), 3);
+	/// assert!(!numbers.into_iter().any(|number| number >= 4));
+	/// # rusqlite::Result::Ok(())
+	/// ```
 	fn lt<T: Serialize>(self, value: T) -> Gt<String, Self>
 	where Self: Sized {
 		Gt { lesser: self, greater: to_string(&value).unwrap() }
 	}
-	/// Takes in a value and compares if it is greater than or equal to the variable.
+	/// Compares if it is greater than or equal to the variable.
+	///
+	/// # Example
+	///
+	/// ```
+	/// # use nosqlite::{Connection, field, json, Key};
+	/// # let connection = Connection::in_memory()?;
+	/// # let table = connection.table("test")?;
+	/// table.insert(json!({"number": 3}), &connection)?;
+	/// table.insert(json!({"number": 9}), &connection)?;
+	/// table.insert(json!({"number": 2}), &connection)?;
+	/// table.insert(json!({"number": 4}), &connection)?;
+	/// table.insert(json!({"number": 3}), &connection)?;
+	/// // Get only the entries where the number is less than or equal to 4
+	/// let numbers: Vec<u8> = table.iter()
+	/// 	.filter(field("number").lte(4)).field("number", &connection)?;
+	/// assert_eq!(numbers.len(), 4);
+	/// assert!(!numbers.into_iter().any(|number| number > 4));
+	/// # rusqlite::Result::Ok(())
+	/// ```
 	fn lte<T: Serialize>(self, value: T) -> Gte<String, Self>
 	where Self: Sized {
 		Gte { lesser: self, greater: to_string(&value).unwrap() }
 	}
 	/// Uses the SQL like comparison operator.
+	///
+	/// # Example
+	///
+	/// ```
+	/// # use nosqlite::{Connection, field, json, Key};
+	/// # let connection = Connection::in_memory()?;
+	/// # let table = connection.table("test")?;
+	/// table.insert(json!({"name": "Hiruna"}), &connection)?;
+	/// table.insert(json!({"name": "Alex"}), &connection)?;
+	/// table.insert(json!({"name": "Bob"}), &connection)?;
+	/// table.insert(json!({"name": "Haruna"}), &connection)?;
+	/// table.insert(json!({"name": "Felix"}), &connection)?;
+	///
+	/// // Get all names that end with 'x'
+	/// let names: Vec<String> = table.iter()
+	/// 	.filter(field("name").like(true, 'x', false)).field("name", &connection)?;
+	/// // We should only match two names
+	/// assert_eq!(names.len(), 2);
+	///
+	/// // Get all names that start with `H` and end with 'runa'
+	/// let names: Vec<String> = table.iter()
+	/// 	.filter(field("name").like(false, "H%runa", false)).field("name", &connection)?;
+	/// // We should only match two names
+	/// assert_eq!(names.len(), 2);
+	/// # rusqlite::Result::Ok(())
+	/// ```
 	fn like<S: std::fmt::Display>(self, matches_start: bool, value: S, matches_end: bool) -> Like<Self, S>
 	where Self: Sized {
 		Like { variable: self, matches_start, value, matches_end }
 	}
+
+	/// Whether the value exists in the JSON object and if it does exist, whether it is not null.
+	///
+	/// # Example
+	///
+	/// ```
+	/// # use nosqlite::{Connection, field, json, Key};
+	/// # let connection = Connection::in_memory()?;
+	/// # let table = connection.table("test")?;
+	/// table.insert(json!({"a": 3, "b": 20}), &connection)?;
+	/// table.insert(json!({"b": 3, "c": 20}), &connection)?;
+	/// table.insert(json!({"a": 89, "b": 3, "c": 20}), &connection)?;
+	/// table.insert(json!({"a": null, "b": 3, "c": 20}), &connection)?;
+	///
+	/// let ids: Vec<i64> = table.iter().filter(field("a").exists()).id(&connection)?;
+	/// // Only Entry 1 and 3 should have passed the filter
+	/// // Entry 2 doesn't have the `a` field and Entry 4 has an `a` field but it's `null`
+	/// // Therefore only two entries should have passed
+	/// assert_eq!(ids.len(), 2);
+	/// assert_eq!(ids[0], 1);
+	/// assert_eq!(ids[1], 3);
+	/// # rusqlite::Result::Ok(())
+	/// ```
+	fn exists(self) -> Exists<Self> where Self: Sized { Exists(self) }
 }
 
 /// Represents a field in a JSON object.
@@ -563,6 +753,26 @@ pub trait Filter {
 	{
 		Or { first: self, second }
 	}
+	/// Negates the condition.
+	///
+	/// # Example
+	///
+	/// ```
+	/// # use nosqlite::{Connection, field, Key, Filter, Table};
+	/// # let connection = Connection::in_memory()?;
+	/// # let table = connection.table("test")?;
+	/// table.insert(1, &connection)?;
+	/// table.insert(2, &connection)?;
+	/// table.insert(3, &connection)?;
+	/// table.insert(1, &connection)?;
+	///
+	/// // Use a filter that effectively is a not equal comparison
+	/// let numbers: Vec<u8> = table.iter().filter(field("").eq(1).not()).data(&connection)?;
+	/// assert_eq!(numbers.len(), 2);
+	/// assert!(!numbers.into_iter().any(|number| number == 1));
+	/// # rusqlite::Result::Ok(())
+	/// ```
+	fn not(self) -> Not<Self> where Self: Sized { Not(self) }
 }
 impl Filter for () {
 	fn where_<'a, A, B>(&self, _: &Iterator<'a, A, B>) -> Option<String> { None }
@@ -584,9 +794,19 @@ impl<A: Filter, B: Filter> Filter for Or<A, B> {
 			self.second.where_(iter).unwrap_or_default()))
 	}
 }
+impl<A: Filter> Filter for Not<A> {
+	fn where_<B, C>(&self, iter: &Iterator<B, C>) -> Option<String> {
+		Some(format!("NOT ({})", self.0.where_(iter).unwrap_or_default()))
+	}
+}
 impl<K: Key> Filter for Eq<K, String> {
 	fn where_<'a, A, B>(&self, iter: &Iterator<'a, A, B>) -> Option<String> {
 		Some(format!("{} = {}", self.variable.key(iter), self.value))
+	}
+}
+impl<K: Key> Filter for Neq<K, String> {
+	fn where_<A, B>(&self, iter: &Iterator<A, B>) ->Option<String> {
+		Some(format!("{} != {}", self.variable.key(iter), self.value))
 	}
 }
 impl<K: Key> Filter for Gt<K, String> {
@@ -615,6 +835,11 @@ impl<K: Key, S: std::fmt::Display> Filter for Like<K, S> {
 			if self.matches_start { "%" } else { "" },
 		    self.value,
 		    if self.matches_end { "%" } else { "" }))
+	}
+}
+impl<A: Key> Filter for Exists<A> {
+	fn where_<B, C>(&self, iter: &Iterator<B, C>) -> Option<String> {
+		Some(format!("{} IS NOT NULL", self.0.key(iter)))
 	}
 }
 
