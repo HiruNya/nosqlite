@@ -202,8 +202,37 @@ impl <I: FromSql + ToSql> Table<I> {
 	/// assert_eq!(bobby.name, "Bobby");
 	/// # Ok::<(), rusqlite::Error>(())
 	/// ```
-	pub fn get(&self, id: I) -> Get<I> {
-		Get { id, data_key: &self.data, id_key: &self.id, table: &self.name }
+	pub fn get(&self, id: I) -> Operation<I> {
+		Operation { id, data_key: &self.data, id_key: &self.id, table: &self.name }
+	}
+
+	/// Deletes an entry with the given primary key.
+	///
+	/// # Example
+	///
+	/// ```
+	/// # use nosqlite::{Connection, json, Table};
+	/// # let connection = Connection::in_memory()?;
+	/// # let table = connection.table("people")?;
+	/// // We insert 2 entries
+	/// table.insert(json!(1), &connection)?;
+	/// table.insert(json!(2), &connection)?;
+	/// let length = table.iter().id(&connection)?.len();
+	/// assert_eq!(length, 2);
+	/// // Remove the entry with id 1
+	/// table.delete(1, &connection)?;
+	/// // Table should only have entry now
+	/// let length = table.iter().id(&connection)?.len();
+	/// assert_eq!(length, 1);
+	/// // And we shouldn't be able to access the entry with primary key 1 now
+	/// assert!(table.get(1).id(&connection)?.is_none());
+	/// # Ok::<(), rusqlite::Error>(())
+	/// ```
+	pub fn delete<C: AsRef<SqliteConnection>>(&self, id: I, connection: C) -> SqliteResult<()> {
+		connection.as_ref().execute(
+			&format!("DELETE FROM {} WHERE {} = ?", self.name, self.id),
+			&[&id],
+		).map(|_|())
 	}
 }
 
@@ -281,13 +310,13 @@ pub mod util {
 
 /// Represents an operation to get a JSON object using its id key.
 #[must_use = "This struct must be used for the database to be queried."]
-pub struct Get<'a, I: FromSql + ToSql> {
+pub struct Operation<'a, I: FromSql + ToSql> {
 	data_key: &'a str,
 	id: I,
 	id_key: &'a str,
 	table: &'a str,
 }
-impl<'a, I: FromSql + ToSql> Get<'a, I> {
+impl<'a, I: FromSql + ToSql> Operation<'a, I> {
 	/// Gets only the JSON object, deserialising it into the struct provided.
 	///
 	/// # Example
@@ -407,6 +436,8 @@ impl<'a, I: FromSql + ToSql> Get<'a, I> {
 /// [`field`]: fn.field.html
 pub struct Field(pub String);
 /// Creates a representation of a field in a JSON object.
+///
+/// If the string is empty, the root is assumed.
 pub fn field(field: &str) -> Field { Field(format_key(field)) }
 impl Field {
 	/// Takes in a value and serialises it, the serialised output is used in the eventual operation.

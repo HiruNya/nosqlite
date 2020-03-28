@@ -35,7 +35,7 @@ impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
 	/// # rusqlite::Result::Ok(())
 	/// ```
 	pub fn data<T: DeserializeOwned, C: AsRef<SqliteConnection>>(&self, connection: C) -> SqliteResult<Vec<T>> {
-		self.execute_get::<_, _, _>(
+		self.execute::<_, _, _>(
 			&format!("SELECT {}", self.data_key),
 			get_first_column(Json::unwrap),
 			connection
@@ -59,7 +59,7 @@ impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
 	/// # rusqlite::Result::Ok(())
 	/// ```
 	pub fn entry<T: DeserializeOwned, C: AsRef<SqliteConnection>>(&self, connection: C) -> SqliteResult<Vec<Entry<I, T>>> {
-		self.execute_get::<_, _, _>(
+		self.execute::<_, _, _>(
 			&format!("SELECT {}, {}", self.id_key, self.data_key),
 			|mut statement, params| {
 				Ok(statement.query_map_named(
@@ -88,7 +88,7 @@ impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
 	/// # rusqlite::Result::Ok(())
 	/// ```
 	pub fn id<C: AsRef<SqliteConnection>>(&self, connection: C) -> SqliteResult<Vec<I>> {
-		self.execute_get::<_, _, _>(
+		self.execute::<_, _, _>(
 			&format!("SELECT {}", self.id_key),
 			get_first_column(no_map),
 			connection
@@ -116,7 +116,7 @@ impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
 	/// # rusqlite::Result::Ok(())
 	/// ```
 	pub fn field<T: FromSql, C: AsRef<SqliteConnection>>(&self, field_: &str, connection: C) -> SqliteResult<Vec<T>> {
-		self.execute_get::<_, _, _>(
+		self.execute::<_, _, _>(
 			&format!("SELECT {}", field(field_).key(&self)),
 			get_first_column(no_map),
 			connection
@@ -158,7 +158,7 @@ impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
 				init.push('"');
 				init
 			});
-		self.execute_get::<_, _, _>(
+		self.execute::<_, _, _>(
 			&format!("SELECT json_extract({}{})", self.data_key, fields),
 			get_first_column(Json::unwrap),
 			connection
@@ -320,6 +320,37 @@ impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
 		).map(|_|())
 	}
 
+	/// Deletes the entry.
+	///
+	/// # Example
+	///
+	/// ```
+	/// # use nosqlite::{Connection, Entry, field, Table, json};
+	/// # use serde::{Deserialize, Serialize};
+	/// # let connection = Connection::in_memory()?;
+	/// # let table = connection.table("test")?;
+	/// // Add some random numbers to the table
+	/// table.insert(9, &connection)?;
+	/// table.insert(10, &connection)?;
+	/// table.insert(12, &connection)?;
+	/// table.insert(3, &connection)?;
+	/// // We expect 4 entries
+	/// let length = table.iter().id(&connection)?.len();
+	/// assert_eq!(length, 4);
+	/// // Now we'll remove every number 10 or above.
+	/// table.iter().filter(field("").gte(10)).delete(&connection)?;
+	/// // There should only be 2 entries left.
+	/// let length = table.iter().id(&connection)?.len();
+	/// assert_eq!(length, 2);
+	/// # rusqlite::Result::Ok(())
+	/// ```
+	pub fn delete<C: AsRef<SqliteConnection>>(&self, connection: C) -> SqliteResult<()> {
+		self.execute("DELETE",
+			|mut statement, params| statement.execute_named(&params),
+			connection
+		).map(|_|())
+	}
+
 	/// Applies a filter on what entries the command will operate on.
 	///
 	/// # Example
@@ -417,7 +448,7 @@ impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
 	/// the given function to handle the output, and the connection to the database.
 	///
 	/// *It is not recommended to use this method.*
-	pub fn execute_get<A, F, C>(&self, command: &str, execute: F, connection: C) -> SqliteResult<A>
+	pub fn execute<A, F, C>(&self, command: &str, execute: F, connection: C) -> SqliteResult<A>
 		where
 			F: FnOnce(Statement, Vec<(&str, &dyn ToSql)>) -> SqliteResult<A>,
 			C: AsRef<SqliteConnection>,
