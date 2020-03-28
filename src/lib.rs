@@ -12,7 +12,7 @@ use rusqlite::{Connection as SqliteConnection, Error as SqliteError, NO_PARAMS, 
 use serde::{Deserialize, de::DeserializeOwned, Serialize};
 use serde_json::to_string;
 
-use std::{marker::PhantomData, path::Path};
+use std::{marker::{PhantomData, Sized}, path::Path};
 
 mod iterator;
 pub use iterator::Iterator;
@@ -32,7 +32,7 @@ impl Connection {
 	///
 	/// # Example
 	///
-	/// ```rust
+	/// ```no_run
 	/// use nosqlite::Connection;
 	/// let connection = Connection::open("database.db")?;
 	/// # Ok::<(), rusqlite::Error>(())
@@ -128,7 +128,7 @@ impl<I: FromSql> Table<I> {
 	/// # Example
 	///
 	/// ```rust
-	/// # use nosqlite::{Connection, field, json, Table};
+	/// # use nosqlite::{Connection, field, json, Key, Table};
 	/// # let connection = Connection::in_memory()?;
 	/// let table = connection.table("people")?;
 	/// table.insert(json!({"name": "Hiruna", "age": 19}), &connection)?;
@@ -462,6 +462,42 @@ impl<'a, I: FromSql + ToSql> Operation<'a, I> {
 	}
 }
 
+/// This can be used for filters or getting fields
+pub trait Key {
+	/// Produces the string that will be used by SQL
+	fn key<A, B>(&self, iterator: &Iterator<A, B>) -> String;
+	/// Takes in a value and serialises it, the serialised output is used in the eventual operation.
+	fn eq<T: Serialize>(self, value: T) -> Eq<Self, String>
+	where Self: Sized {
+		Eq { variable: self, value: to_string(&value).unwrap() }
+	}
+	/// Takes in a value and compares if it is less than the variable.
+	fn gt<T: Serialize>(self, value: T) -> Gt<Self, String>
+	where Self: Sized{
+		Gt { greater: self, lesser: to_string(&value).unwrap() }
+	}
+	/// Takes in a value and compares if it is less than or equal to the variable.
+	fn gte<T: Serialize>(self, value: T) -> Gte<Self, String>
+	where Self: Sized {
+		Gte { greater: self, lesser: to_string(&value).unwrap() }
+	}
+	/// Takes in a value and compares if it is greater than the variable.
+	fn lt<T: Serialize>(self, value: T) -> Gt<String, Self>
+	where Self: Sized {
+		Gt { lesser: self, greater: to_string(&value).unwrap() }
+	}
+	/// Takes in a value and compares if it is greater than or equal to the variable.
+	fn lte<T: Serialize>(self, value: T) -> Gte<String, Self>
+	where Self: Sized {
+		Gte { lesser: self, greater: to_string(&value).unwrap() }
+	}
+	/// Uses the SQL like comparison operator.
+	fn like<S: std::fmt::Display>(self, matches_start: bool, value: S, matches_end: bool) -> Like<Self, S>
+	where Self: Sized {
+		Like { variable: self, matches_start, value, matches_end }
+	}
+}
+
 /// Represents a field in a JSON object.
 ///
 /// Create this using the [`field`] method.
@@ -472,33 +508,42 @@ pub struct Field(pub String);
 ///
 /// If the string is empty, the root is assumed.
 pub fn field(field: &str) -> Field { Field(format_key(field)) }
-impl Field {
-	/// Takes in a value and serialises it, the serialised output is used in the eventual operation.
-	pub fn eq<T: Serialize>(self, value: T) -> Eq<Field, String> {
-		Eq { variable: self, value: to_string(&value).unwrap() }
-	}
-	/// Takes in a value and compares if it is less than the variable.
-	pub fn gt<T: Serialize>(self, value: T) -> Gt<Field, String> {
-		Gt { greater: self, lesser: to_string(&value).unwrap() }
-	}
-	/// Takes in a value and compares if it is less than or equal to the variable.
-	pub fn gte<T: Serialize>(self, value: T) -> Gte<Field, String> {
-		Gte { greater: self, lesser: to_string(&value).unwrap() }
-	}
-	/// Takes in a value and compares if it is greater than the variable.
-	pub fn lt<T: Serialize>(self, value: T) -> Gt<String, Field> {
-		Gt { lesser: self, greater: to_string(&value).unwrap() }
-	}
-	/// Takes in a value and compares if it is greater than or equal to the variable.
-	pub fn lte<T: Serialize>(self, value: T) -> Gte<String, Field> {
-		Gte { lesser: self, greater: to_string(&value).unwrap() }
-	}
-	/// Uses the SQL like comparison operator.
-	pub fn like<S: std::fmt::Display>(self, matches_start: bool, value: S, matches_end: bool) -> Like<Field, S> {
-		Like { variable: self, matches_start, value, matches_end }
-	}
+impl Key for Field {
 	fn key<'a, A, B>(&self, iter: &Iterator<'a, A, B>) -> String {
 		format!("json_extract({}, \"{}\")", iter.data_key, self.0)
+	}
+}
+
+/// A column in the SQL table.
+///
+/// Create this using the [`column`] function.
+///
+/// This isn't generally used unless you have a custom table.
+///
+/// # Example
+///
+/// ```
+/// # use nosqlite::{column, Column, Connection, json, Key, Table};
+/// # let connection = Connection::in_memory()?;
+/// # let table = connection.table("test")?;
+/// table.insert(10, &connection)?;
+/// table.insert(20, &connection)?;
+/// table.insert(30, &connection)?;
+/// // Get the entries with an id greater than 1
+/// let data = table.iter().filter(column("id").gt(1)).id(&connection)?;
+/// // Only 2 entries should have been queried
+/// assert_eq!(data.len(), 2);
+/// assert_eq!(data.into_iter().any(|id| id == 1), false);
+/// # rusqlite::Result::Ok(())
+/// ```
+///
+/// [`column`]: fn.column.html
+pub struct Column(pub String);
+/// Create a representation of a column in a SQL table.
+pub fn column<S: Into<String>>(column: S) -> Column { Column(column.into()) }
+impl Key for Column {
+	fn key<A, B>(&self, _: &Iterator<A, B>) -> String {
+		self.0.clone()
 	}
 }
 
@@ -539,32 +584,32 @@ impl<A: Filter, B: Filter> Filter for Or<A, B> {
 			self.second.where_(iter).unwrap_or_default()))
 	}
 }
-impl Filter for Eq<Field, String> {
+impl<K: Key> Filter for Eq<K, String> {
 	fn where_<'a, A, B>(&self, iter: &Iterator<'a, A, B>) -> Option<String> {
 		Some(format!("{} = {}", self.variable.key(iter), self.value))
 	}
 }
-impl Filter for Gt<Field, String> {
+impl<K: Key> Filter for Gt<K, String> {
 	fn where_<'a, A, B>(&self, iter: &Iterator<'a, A, B>) -> Option<String> {
 		Some(format!("{} > {}", self.greater.key(iter), self.lesser))
 	}
 }
-impl Filter for Gte<Field, String> {
+impl<K: Key> Filter for Gte<K, String> {
 	fn where_<'a, A, B>(&self, iter: &Iterator<'a, A, B>) -> Option<String> {
 		Some(format!("{} >= {}", self.greater.key(iter), self.lesser))
 	}
 }
-impl Filter for Gt<String, Field> {
+impl<K: Key> Filter for Gt<String, K> {
 	fn where_<'a, A, B>(&self, iter: &Iterator<'a, A, B>) -> Option<String> {
 		Some(format!("{} < {}", self.lesser.key(iter), self.greater))
 	}
 }
-impl Filter for Gte<String, Field> {
+impl<K: Key> Filter for Gte<String, K> {
 	fn where_<'a, A, B>(&self, iter: &Iterator<'a, A, B>) -> Option<String> {
 		Some(format!("{} <= {}", self.lesser.key(iter), self.greater))
 	}
 }
-impl<S: std::fmt::Display> Filter for Like<Field, S> {
+impl<K: Key, S: std::fmt::Display> Filter for Like<K, S> {
 	fn where_<'a, A, B>(&self, iter: &Iterator<'a, A, B>) -> Option<String> {
 		Some(format!("{} LIKE '{}{}{}'", self.variable.key(iter),
 			if self.matches_start { "%" } else { "" },

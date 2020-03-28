@@ -1,4 +1,4 @@
-use nosqlite::{Connection, field};
+use nosqlite::{Connection, field, Key};
 use serde::Serialize;
 
 #[derive(Serialize)]

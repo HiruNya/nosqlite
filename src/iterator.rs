@@ -4,7 +4,7 @@ use rusqlite::{Connection as SqliteConnection, Result as SqliteResult, Statement
 	types::{FromSql, ToSql}};
 use serde::{de::DeserializeOwned, Serialize};
 
-use crate::{Entry, field, Filter, format_key, Json};
+use crate::{Entry, field, Filter, format_key, Json, Key};
 
 /// Represents a potential operation on a table.
 #[must_use = "This struct does not do anything until executed"]
@@ -356,7 +356,7 @@ impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
 	/// # Example
 	///
 	/// ```
-	/// # use nosqlite::{Connection, Entry, field, Table, json};
+	/// # use nosqlite::{Connection, Entry, field, Key, Table, json};
 	/// # use serde::{Deserialize, Serialize};
 	/// # let connection = Connection::in_memory()?;
 	/// # let table = connection.table("test")?;
@@ -387,7 +387,7 @@ impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
 	/// # Example
 	///
 	/// ```
-	/// # use nosqlite::{Connection, Entry, field, Table, json};
+	/// # use nosqlite::{Connection, Entry, field, Key, Table, json};
 	/// # use serde::{Deserialize, Serialize};
 	/// # let connection = Connection::in_memory()?;
 	/// # let table = connection.table("people")?;
