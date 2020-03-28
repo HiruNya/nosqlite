@@ -245,6 +245,37 @@ impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
 		).map(|_|())
 	}
 
+	/// Removes a *field* from a JSON object.
+	///
+	/// # Example
+	///
+	/// ```
+	/// # use nosqlite::{Connection, Entry, Table, json};
+	/// # use serde::{Deserialize, Serialize};
+	/// # let connection = Connection::in_memory()?;
+	/// # let table = connection.table("people")?;
+	/// table.insert(json!({ "first_name": "Hiruna", "age": 19 }), &connection)?;
+	/// table.insert(json!({ "first_name": "Bob", "age": 13 }), &connection)?;
+	///
+	/// table.iter().remove("age", &connection);
+	/// // This should return no entries because no JSON object has an `age` field
+	/// let people: Vec<u8> = table.iter().field("age", &connection)?;
+	/// assert_eq!(people.len(), 0);
+	/// // This *does not* delete the entries
+	/// assert_eq!(table.iter().id(&connection)?.len(), 2);
+	/// # rusqlite::Result::Ok(())
+	/// ```
+	pub fn remove<C>(&self, field: &str, connection: C) -> SqliteResult<()>
+	where C: AsRef<SqliteConnection>
+	{
+		let path = format_key(field);
+		let set_value = format!("{} = json_remove({}, '{}')", self.data_key, self.data_key, path);
+		connection.as_ref().execute(
+			&format!("UPDATE {} SET {} {}", self.table_key, set_value, self.make_clauses()),
+			rusqlite::NO_PARAMS
+		).map(|_|())
+	}
+
 	/// Replaces a field in a JSON object with a given value.
 	///
 	/// Will only replace an already existing field.

@@ -427,6 +427,39 @@ impl<'a, I: FromSql + ToSql> Operation<'a, I> {
 			|row| row.get(0)
 		).optional()
 	}
+
+	/// Removes a *field* from a JSON object.
+	///
+	/// # Example
+	///
+	/// ```
+	/// # use nosqlite::{Connection, Entry, Table, json};
+	/// # use serde::{Deserialize, Serialize};
+	/// # let connection = Connection::in_memory()?;
+	/// # let table = connection.table("people")?;
+	/// table.insert(json!({ "name": "Hiruna", "age": 19 }), &connection)?;
+	/// table.insert(json!({ "name": "Bob", "age": 13 }), &connection)?;
+	///
+	/// table.get(2).remove("age", &connection);
+	/// // Only 1 entry is returned because the second JSON object doesn't have an `age` field
+	/// // so only entry 1 has an age field
+	/// let people: Vec<(String, u8)> = table.iter().fields(&["name", "age"], &connection)?;
+	/// assert_eq!(people.len(), 1);
+	/// assert_eq!(people[0].0, "Hiruna");
+	/// // This *does not* delete the entry
+	/// assert_eq!(table.iter().id(&connection)?.len(), 2);
+	/// # rusqlite::Result::Ok(())
+	/// ```
+	pub fn remove<C>(&self, field: &str, connection: C) -> SqliteResult<()>
+		where C: AsRef<SqliteConnection>
+	{
+		let path = format_key(field);
+		let set_value = format!("{} = json_remove({}, '{}')", self.data_key, self.data_key, path);
+		connection.as_ref().execute(
+			&format!("UPDATE {} SET {} WHERE {} = ?", self.table, set_value, self.id_key),
+			&[&self.id]
+		).map(|_|())
+	}
 }
 
 /// Represents a field in a JSON object.
