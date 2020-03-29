@@ -1,6 +1,6 @@
 //! This crate implements a NoSQL-like API over SQLite using SQLite's Json1 extension.
 //!
-//! If this is your first time here, start of by reading the [`Connection`] docs.
+//! If this is your first time here, start off by reading the [`Connection`] docs.
 //!
 //! [`Connection`]: struct.Connection.html
 #![warn(missing_docs)]
