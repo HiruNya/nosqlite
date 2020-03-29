@@ -1,0 +1,3 @@
+(function() {var implementors = {};
+implementors["nosqlite"] = [{"text":"impl&lt;T:&nbsp;<a class=\"trait\" href=\"serde/de/trait.DeserializeOwned.html\" title=\"trait serde::de::DeserializeOwned\">DeserializeOwned</a>&gt; <a class=\"trait\" href=\"nosqlite/trait.FromSql.html\" title=\"trait nosqlite::FromSql\">FromSql</a> for <a class=\"struct\" href=\"nosqlite/struct.Json.html\" title=\"struct nosqlite::Json\">Json</a>&lt;T&gt;","synthetic":false,"types":["nosqlite::Json"]}];
+if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()

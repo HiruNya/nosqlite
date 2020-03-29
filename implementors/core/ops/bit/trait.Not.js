@@ -1,0 +1,4 @@
+(function() {var implementors = {};
+implementors["nosqlite"] = [{"text":"impl&lt;T&gt; <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/core/ops/bit/trait.Not.html\" title=\"trait core::ops::bit::Not\">Not</a> for <a class=\"enum\" href=\"nosqlite/util/enum.SortOrder.html\" title=\"enum nosqlite::util::SortOrder\">SortOrder</a>&lt;T&gt;","synthetic":false,"types":["nosqlite::util::SortOrder"]}];
+implementors["rusqlite"] = [{"text":"impl <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/core/ops/bit/trait.Not.html\" title=\"trait core::ops::bit::Not\">Not</a> for <a class=\"struct\" href=\"rusqlite/struct.OpenFlags.html\" title=\"struct rusqlite::OpenFlags\">OpenFlags</a>","synthetic":false,"types":["rusqlite::OpenFlags"]}];
+if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()
