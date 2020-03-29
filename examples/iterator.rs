@@ -12,10 +12,12 @@ fn main() {
 	let table = connection.table("people").unwrap();
 	table.insert(&User{ name: "Hiruna".into(), age: 18 }, &connection).unwrap();
 	table.insert(&User{ name: "Bob".into(),  age: 13 }, &connection).unwrap();
-	table.insert(&User{ name: "Alex".into(), age: 20 }, &connection).unwrap();
 	table.insert(&User{ name: "Callum".into(), age: 25 }, &connection).unwrap();
+	table.insert(&User{ name: "Alex".into(), age: 20 }, &connection).unwrap();
 	// Iterate over the entries in the table
 	table.iter()
+		// Sort by Age
+		.sort(field("age").ascending())
 		// Only get people who are 18+
 		.filter(field("age").gte(18))
 		// Gets the name and age fields of the JSON object

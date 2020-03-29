@@ -140,13 +140,14 @@ impl<I: FromSql> Table<I> {
 	/// assert!(data[0].1 > 18);
 	/// # Ok::<(), rusqlite::Error>(())
 	/// ```
-	pub fn iter(&self) -> Iterator<I, ()> {
+	pub fn iter(&self) -> Iterator<I, (), ()> {
 		Iterator {
 			data_key: &self.data,
 			id_key: &self.id,
 			id_type: self.id_type,
 			limit: None,
 			offset: None,
+			order_by: (),
 			table_key: &self.name,
 			where_: (),
 		}
@@ -320,6 +321,34 @@ pub mod util {
 
 	/// A struct that checks whether a field exists and if that field is not null.
 	pub struct Exists<A>(pub A);
+
+	/// The order which the key will be sorted by
+	pub enum SortOrder<T> {
+		/// Lowest value first
+		Ascending(T),
+		/// Largest value first
+		Descending(T),
+	}
+	impl<T: crate::Key> SortOrder<T> {
+		pub(crate) fn key<A, B, C>(&self, iter: &crate::Iterator<A, B, C>) -> String {
+			let (mut key, ascending) = match self {
+				SortOrder::Ascending(k) => (k.key(iter), true),
+				SortOrder::Descending(k) => (k.key(iter), false),
+			};
+			if ascending { key.push_str(" ASC") } else { key.push_str(" DESC") }
+			key
+		}
+	}
+	impl<T> std::ops::Not for SortOrder<T> {
+		type Output = SortOrder<T>;
+
+		fn not(self) -> Self::Output {
+			match self {
+				SortOrder::Ascending(t) => SortOrder::Descending(t),
+				SortOrder::Descending(t) => SortOrder::Ascending(t),
+			}
+		}
+	}
 }
 
 /// Represents an operation to get a JSON object using its id key.
@@ -479,7 +508,7 @@ impl<'a, I: FromSql + ToSql> Operation<'a, I> {
 /// This can be used for filters or getting fields
 pub trait Key {
 	/// Produces the string that will be used by SQL.
-	fn key<A, B>(&self, iterator: &Iterator<A, B>) -> String;
+	fn key<A, B, C>(&self, iterator: &Iterator<A, B, C>) -> String;
 
 	/// Compares for equality.
 	///
@@ -686,6 +715,48 @@ pub trait Key {
 	/// # rusqlite::Result::Ok(())
 	/// ```
 	fn exists(self) -> Exists<Self> where Self: Sized { Exists(self) }
+
+	/// This field is to be sorted in ascending order.
+	///
+	/// # Example
+	///
+	/// ```
+	/// # use nosqlite::{Connection, field, json, Key, Table};
+	/// # let connection = Connection::in_memory()?;
+	/// # let table = connection.table("test")?;
+	/// table.insert(json!({"a": 4}), &connection)?;
+	/// table.insert(json!({"a": 8}), &connection)?;
+	/// table.insert(json!({"a": 6}), &connection)?;
+	///
+	/// let a: Vec<u8> = table.iter().sort(field("a").ascending()).field("a", &connection)?;
+	///
+	/// assert_eq!(a[0], 4);
+	/// assert_eq!(a[1], 6);
+	/// assert_eq!(a[2], 8);
+	/// # rusqlite::Result::Ok(())
+	/// ```
+	fn ascending(self) -> SortOrder<Self> where Self: Sized { SortOrder::Ascending(self) }
+
+	/// This field is to be sorted in descending order.
+	///
+	/// # Example
+	///
+	/// ```
+	/// # use nosqlite::{Connection, field, json, Key, Table};
+	/// # let connection = Connection::in_memory()?;
+	/// # let table = connection.table("test")?;
+	/// table.insert(json!({"a": 4}), &connection)?;
+	/// table.insert(json!({"a": 8}), &connection)?;
+	/// table.insert(json!({"a": 6}), &connection)?;
+	///
+	/// let a: Vec<u8> = table.iter().sort(field("a").descending()).field("a", &connection)?;
+	///
+	/// assert_eq!(a[0], 8);
+	/// assert_eq!(a[1], 6);
+	/// assert_eq!(a[2], 4);
+	/// # rusqlite::Result::Ok(())
+	/// ```
+	fn descending(self) -> SortOrder<Self> where Self: Sized { SortOrder::Descending(self) }
 }
 
 /// Represents a field in a JSON object.
@@ -699,7 +770,7 @@ pub struct Field(pub String);
 /// If the string is empty, the root is assumed.
 pub fn field(field: &str) -> Field { Field(format_key(field)) }
 impl Key for Field {
-	fn key<'a, A, B>(&self, iter: &Iterator<'a, A, B>) -> String {
+	fn key<'a, A, B, C>(&self, iter: &Iterator<'a, A, B, C>) -> String {
 		format!("json_extract({}, \"{}\")", iter.data_key, self.0)
 	}
 }
@@ -732,15 +803,13 @@ pub struct Column(pub String);
 /// Create a representation of a column in a SQL table.
 pub fn column<S: Into<String>>(column: S) -> Column { Column(column.into()) }
 impl Key for Column {
-	fn key<A, B>(&self, _: &Iterator<A, B>) -> String {
-		self.0.clone()
-	}
+	fn key<A, B, C>(&self, _: &Iterator<A, B, C>) -> String { self.0.clone() }
 }
 
 /// Represents a condition which will determine what entries the operation can work on.
 pub trait Filter {
 	/// Returns a string formatted for use in an SQL statement.
-	fn where_<'a, A, B>(&self, _: &Iterator<'a, A, B>) -> Option<String>;
+	fn where_<'a, A, B, C>(&self, _: &Iterator<'a, A, B, C>) -> Option<String>;
 	/// Allows chaining of multiple conditions.
 	fn and<B: Filter>(self, second: B) -> And<Self, B>
 	where Self: std::marker::Sized
@@ -775,62 +844,62 @@ pub trait Filter {
 	fn not(self) -> Not<Self> where Self: Sized { Not(self) }
 }
 impl Filter for () {
-	fn where_<'a, A, B>(&self, _: &Iterator<'a, A, B>) -> Option<String> { None }
+	fn where_<'a, A, B, C>(&self, _: &Iterator<'a, A, B, C>) -> Option<String> { None }
 }
 impl Filter for String {
-	fn where_<'a, A, B>(&self, _: &Iterator<'a, A, B>) -> Option<String> { Some(self.clone()) }
+	fn where_<'a, A, B, C>(&self, _: &Iterator<'a, A, B, C>) -> Option<String> { Some(self.clone()) }
 }
 impl<A: Filter, B: Filter> Filter for And<A, B> {
-	fn where_<'a, C, D>(&self, iter: &Iterator<'a, C, D>) -> Option<String> {
+	fn where_<'a, C, D, E>(&self, iter: &Iterator<'a, C, D, E>) -> Option<String> {
 		Some(format!("({} AND {})",
 			self.first.where_(iter).unwrap_or_default(),
 			self.second.where_(iter).unwrap_or_default()))
 	}
 }
 impl<A: Filter, B: Filter> Filter for Or<A, B> {
-	fn where_<'a, C, D>(&self, iter: &Iterator<'a, C, D>) -> Option<String> {
+	fn where_<'a, C, D, E>(&self, iter: &Iterator<'a, C, D, E>) -> Option<String> {
 		Some(format!("({} OR {})",
 			self.first.where_(iter).unwrap_or_default(),
 			self.second.where_(iter).unwrap_or_default()))
 	}
 }
 impl<A: Filter> Filter for Not<A> {
-	fn where_<B, C>(&self, iter: &Iterator<B, C>) -> Option<String> {
+	fn where_<B, C, D>(&self, iter: &Iterator<B, C, D>) -> Option<String> {
 		Some(format!("NOT ({})", self.0.where_(iter).unwrap_or_default()))
 	}
 }
 impl<K: Key> Filter for Eq<K, String> {
-	fn where_<'a, A, B>(&self, iter: &Iterator<'a, A, B>) -> Option<String> {
+	fn where_<'a, A, B, C>(&self, iter: &Iterator<'a, A, B, C>) -> Option<String> {
 		Some(format!("{} = {}", self.variable.key(iter), self.value))
 	}
 }
 impl<K: Key> Filter for Neq<K, String> {
-	fn where_<A, B>(&self, iter: &Iterator<A, B>) ->Option<String> {
+	fn where_<A, B, C>(&self, iter: &Iterator<A, B, C>) ->Option<String> {
 		Some(format!("{} != {}", self.variable.key(iter), self.value))
 	}
 }
 impl<K: Key> Filter for Gt<K, String> {
-	fn where_<'a, A, B>(&self, iter: &Iterator<'a, A, B>) -> Option<String> {
+	fn where_<'a, A, B, C>(&self, iter: &Iterator<'a, A, B, C>) -> Option<String> {
 		Some(format!("{} > {}", self.greater.key(iter), self.lesser))
 	}
 }
 impl<K: Key> Filter for Gte<K, String> {
-	fn where_<'a, A, B>(&self, iter: &Iterator<'a, A, B>) -> Option<String> {
+	fn where_<'a, A, B, C>(&self, iter: &Iterator<'a, A, B, C>) -> Option<String> {
 		Some(format!("{} >= {}", self.greater.key(iter), self.lesser))
 	}
 }
 impl<K: Key> Filter for Gt<String, K> {
-	fn where_<'a, A, B>(&self, iter: &Iterator<'a, A, B>) -> Option<String> {
+	fn where_<'a, A, B, C>(&self, iter: &Iterator<'a, A, B, C>) -> Option<String> {
 		Some(format!("{} < {}", self.lesser.key(iter), self.greater))
 	}
 }
 impl<K: Key> Filter for Gte<String, K> {
-	fn where_<'a, A, B>(&self, iter: &Iterator<'a, A, B>) -> Option<String> {
+	fn where_<'a, A, B, C>(&self, iter: &Iterator<'a, A, B, C>) -> Option<String> {
 		Some(format!("{} <= {}", self.lesser.key(iter), self.greater))
 	}
 }
 impl<K: Key, S: std::fmt::Display> Filter for Like<K, S> {
-	fn where_<'a, A, B>(&self, iter: &Iterator<'a, A, B>) -> Option<String> {
+	fn where_<'a, A, B, C>(&self, iter: &Iterator<'a, A, B, C>) -> Option<String> {
 		Some(format!("{} LIKE '{}{}{}'", self.variable.key(iter),
 			if self.matches_start { "%" } else { "" },
 		    self.value,
@@ -838,8 +907,35 @@ impl<K: Key, S: std::fmt::Display> Filter for Like<K, S> {
 	}
 }
 impl<A: Key> Filter for Exists<A> {
-	fn where_<B, C>(&self, iter: &Iterator<B, C>) -> Option<String> {
+	fn where_<B, C, D>(&self, iter: &Iterator<B, C, D>) -> Option<String> {
 		Some(format!("{} IS NOT NULL", self.0.key(iter)))
+	}
+}
+
+/// An expression that is used to sort the entries in the database
+/// before it is returned to the program.
+pub trait Sort {
+	/// Crates a list of SQL expressions to use for sorting
+	///
+	/// Normal users of this crate should not need to use this at all.
+	fn order_by<A, B, C>(&self, iter: &Iterator<A, B, C>) -> Vec<String>;
+
+	/// Add to the list of SQL expressions being used for sorting.
+	///
+	/// The second one will be taken into account after the first one.
+	fn and<B>(self, second: B) -> And<Self, B> where Self: Sized { And { first: self, second } }
+}
+impl Sort for () {
+	fn order_by<A, B, C>(&self, _: &Iterator<A, B, C>) -> Vec<String> { Vec::new() }
+}
+impl<K: Key> Sort for SortOrder<K> {
+	fn order_by<A, B, C>(&self, iter: &Iterator<A, B, C>) -> Vec<String> { vec![self.key(iter)]	}
+}
+impl<A: Sort, B: Sort> Sort for And<A, B> {
+	fn order_by<C, D, E>(&self, iter: &Iterator<C, D, E>) -> Vec<String> {
+		let mut first = self.first.order_by(iter);
+		first.extend(self.second.order_by(iter));
+		first
 	}
 }
 

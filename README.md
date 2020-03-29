@@ -16,7 +16,8 @@ However this crate does try to be as ergonomic and flexible as possible.
 - Insert JSON objects.
 - Get and remove JSON objects by primary key.
 - Iterate through multiple entries in a table.
-- Filter by using the fields in a JSON object or columns in the SQL table.
+- Filter and Sort the entries by using the fields in a JSON object
+or columns in the SQL table.
 - Get *only* the primary key, JSON object,
 or specific field(s) from the JSON object.
 - Set, insert, replace, and remove fields in a JSON object.
@@ -25,7 +26,6 @@ or specific field(s) from the JSON object.
 ## To Do
 - Set, insert, and replace fields of a single entry using its primary key.
 - Add indexes to speed up queries.
-- Sort query results.
 
 ## Inspirations
 [hotpot-db](https://github.com/drbh/hotpot-db)

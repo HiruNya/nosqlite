@@ -4,20 +4,21 @@ use rusqlite::{Connection as SqliteConnection, Result as SqliteResult, Statement
 	types::{FromSql, ToSql}};
 use serde::{de::DeserializeOwned, Serialize};
 
-use crate::{Entry, field, Filter, format_key, Json, Key};
+use crate::{Entry, field, Filter, format_key, Json, Key, Sort};
 
 /// Represents a potential operation on a table.
 #[must_use = "This struct does not do anything until executed"]
-pub struct Iterator<'a, I, W> {
+pub struct Iterator<'a, I, W, S> {
 	pub(crate) data_key: &'a str,
 	pub(crate) id_key: &'a str,
 	pub(crate) id_type: PhantomData<fn() -> I>,
 	pub(crate) limit: Option<u32>,
 	pub(crate) offset: Option<u32>,
+	pub(crate) order_by: S,
 	pub(crate) where_: W,
 	pub(crate) table_key: &'a str,
 }
-impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
+impl<'a, I: FromSql, W: Filter, S: Sort> Iterator<'a, I, W, S> {
 	/// ***GET***s only the JSON object.
 	///
 	/// # Example
@@ -143,10 +144,10 @@ impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
 	/// assert_eq!(people[0], ("Hiruna".into(), "Jayamanne".into()));
 	/// # rusqlite::Result::Ok(())
 	/// ```
-	pub fn fields<T, F, C, S>(&self, fields: F, connection: C) -> SqliteResult<Vec<T>>
+	pub fn fields<T, F, C, A>(&self, fields: F, connection: C) -> SqliteResult<Vec<T>>
 	where
-		F: IntoIterator<Item=S>,
-		S: AsRef<str>,
+		F: IntoIterator<Item=A>,
+		A: AsRef<str>,
 		T: DeserializeOwned,
 		C: AsRef<SqliteConnection>,
 	{
@@ -407,15 +408,70 @@ impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
 	/// }
 	/// # rusqlite::Result::Ok(())
 	/// ```
-	pub fn filter<A: Filter>(self, filter: A) -> Iterator<'a, I, A> {
+	pub fn filter<A: Filter>(self, filter: A) -> Iterator<'a, I, A, S> {
 		Iterator {
 			where_: filter,
 			id_key: self.id_key,
 			id_type: self.id_type,
-			limit: None,
+			limit: self.limit,
 			offset: self.offset,
+			order_by: self.order_by,
 			table_key: self.table_key,
 			data_key: self.data_key,
+		}
+	}
+
+	/// Sort by using a specific field(s)
+	///
+	/// # Examples
+	///
+	/// ```
+	/// # use nosqlite::{Connection, field, json, Key, Table};
+	/// # let connection = Connection::in_memory()?;
+	/// # let table = connection.table("test")?;
+	/// table.insert(json!({"a": 3, "b": 2}), &connection)?;
+	/// table.insert(json!({"a": 6, "b": 1}), &connection)?;
+	/// table.insert(json!({"a": 2, "b": 8}), &connection)?;
+	/// table.insert(json!({"a": 8, "b": 4}), &connection)?;
+	///
+	/// let data: Vec<u8> = table.iter().sort(field("a").ascending()).field("a", &connection)?;
+	///
+	/// assert_eq!(data[0], 2);
+	/// assert_eq!(data[1], 3);
+	/// assert_eq!(data[2], 6);
+	/// assert_eq!(data[3], 8);
+	/// # rusqlite::Result::Ok(())
+	/// ```
+	///
+	/// ```
+	/// # use nosqlite::{Connection, field, Key, json, Sort, Table};
+	/// # let connection = Connection::in_memory()?;
+	/// # let table = connection.table("test")?;
+	/// table.insert(json!({"a": 2, "b": 2}), &connection)?;
+	/// table.insert(json!({"a": 2, "b": 1}), &connection)?;
+	/// table.insert(json!({"a": 8, "b": 4}), &connection)?;
+	/// table.insert(json!({"a": 2, "b": 8}), &connection)?;
+	///
+	/// let data: Vec<(u8, u8)> = table.iter()
+	/// 	.sort(field("a").ascending().and(field("b").ascending()))
+	/// 	.fields(&["a","b"], &connection)?;
+	///
+	/// assert!(data[0].0 == 2 && data[0].1 == 1);
+	/// assert!(data[1].0 == 2 && data[1].1 == 2);
+	/// assert!(data[2].0 == 2 && data[2].1 == 8);
+	/// assert!(data[3].0 == 8 && data[3].1 == 4);
+	/// # rusqlite::Result::Ok(())
+	/// ```
+	pub fn sort<A: Sort>(self, key: A) -> Iterator<'a, I, W, A> {
+		Iterator {
+			data_key: self.data_key,
+			where_: self.where_,
+			id_key: self.id_key,
+			id_type: self.id_type,
+			limit: self.limit,
+			offset: self.offset,
+			order_by: key,
+			table_key: self.table_key,
 		}
 	}
 
@@ -493,7 +549,20 @@ impl<'a, I: FromSql, W: Filter> Iterator<'a, I, W> {
 		let where_ = self.where_.where_(&self).map(|w| format!("WHERE {}", w)).unwrap_or_default();
 		let limit = if self.limit.is_none() && self.offset.is_none() { String::new() }
 		else { format!("LIMIT {} OFFSET {}", self.limit.map(|i| i as i64).unwrap_or(-1), self.offset.unwrap_or(0)) };
-		format!("{} {}", where_, limit)
+		let order = self.order_by.order_by(&self);
+		let order = if order.is_empty() { String::new() } else {
+			let mut first_time = true;
+			order.into_iter()
+				.fold("ORDER BY ".to_string(), |mut string, key| {
+					if !first_time {
+						string.push(',');
+					}
+					first_time = false;
+					string.push_str(&key);
+					string
+				})
+		};
+		format!("{} {} {}", where_, limit, order)
 	}
 }
 
