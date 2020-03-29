@@ -1,0 +1,22 @@
+name: Rust
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  test:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Run tests
+      run: cargo test --verbose
+    - name: Clippy
+      uses: actions-rs/clippy-check@v1.0.5
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        args: "--examples"
