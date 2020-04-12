@@ -118,7 +118,7 @@ impl<'a, I: FromSql, W: Filter, S: Sort> Iterator<'a, I, W, S> {
 	/// ```
 	pub fn field<T: FromSql, C: AsRef<SqliteConnection>>(&self, field_: &str, connection: C) -> SqliteResult<Vec<T>> {
 		self.execute::<_, _, _>(
-			&format!("SELECT {}", field(field_).key(&self)),
+			&format!("SELECT {}", field(field_).key(&self.data_key)),
 			get_first_column(no_map),
 			connection
 		)
@@ -546,10 +546,10 @@ impl<'a, I: FromSql, W: Filter, S: Sort> Iterator<'a, I, W, S> {
 	}
 
 	fn make_clauses(&self) -> String {
-		let where_ = self.where_.where_(&self).map(|w| format!("WHERE {}", w)).unwrap_or_default();
+		let where_ = self.where_.where_(&self.data_key).map(|w| format!("WHERE {}", w)).unwrap_or_default();
 		let limit = if self.limit.is_none() && self.offset.is_none() { String::new() }
 		else { format!("LIMIT {} OFFSET {}", self.limit.map(|i| i as i64).unwrap_or(-1), self.offset.unwrap_or(0)) };
-		let order = self.order_by.order_by(&self);
+		let order = self.order_by.order_by(&self.data_key);
 		let order = if order.is_empty() { String::new() } else {
 			let mut first_time = true;
 			order.into_iter()

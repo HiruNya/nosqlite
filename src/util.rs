@@ -76,10 +76,10 @@ pub enum SortOrder<T> {
 	Descending(T),
 }
 impl<T: crate::Key> SortOrder<T> {
-	pub(crate) fn key<A, B, C>(&self, iter: &crate::Iterator<A, B, C>) -> String {
+	pub(crate) fn key(&self, data_key: &str) -> String {
 		let (mut key, ascending) = match self {
-			SortOrder::Ascending(k) => (k.key(iter), true),
-			SortOrder::Descending(k) => (k.key(iter), false),
+			SortOrder::Ascending(k) => (k.key(data_key), true),
+			SortOrder::Descending(k) => (k.key(data_key), false),
 		};
 		if ascending { key.push_str(" ASC") } else { key.push_str(" DESC") }
 		key

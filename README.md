@@ -27,10 +27,10 @@ or columns in the SQL table.
 or specific field(s) from the JSON object.
 - Set, insert, replace, and remove fields in a JSON object.
 - 'Patch' JSON objects with other JSON objects.
+- Use indexes to speed up queries.
 
 ## To Do
 - Set, insert, and replace fields of a single entry using its primary key.
-- Add indexes to speed up queries.
 
 ## Example
 This example can be found in `examples/iterator.rs`
