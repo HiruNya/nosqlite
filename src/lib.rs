@@ -19,7 +19,7 @@ pub use iterator::Iterator;
 mod key;
 pub use key::{column, Column, field, Field, format_key, Key};
 mod table;
-pub use table::{Operation, Table};
+pub use table::{KeyTable, Operation, Table};
 pub mod util;
 pub(crate) use util::*;
 
@@ -85,6 +85,35 @@ impl Connection {
 				data: "data".into(),
 				name: table,
 			})
+	}
+
+	/// gets a keyed table in the database using its name.
+	///
+	/// Creates one if it doesn't exist.
+	///
+	/// # Example
+	/// ```
+	/// # use nosqlite::{Connection, json, KeyTable, Table};
+	/// # let connection = Connection::in_memory()?;
+	/// let table: KeyTable<String> = connection.key_table("test".to_string())?;
+	/// table.insert("Point".into(), json!({ "x": 3, "y": 10 }), &connection)?;
+	/// assert_eq!(table.as_ref().get("Point".into()).field("x", &connection)?, Some(3));
+	/// # rusqlite::Result::Ok(())
+	/// ```
+	pub fn key_table<I: SqlType, T: Into<String>>(&self, table: T) -> SqliteResult<KeyTable<I>> {
+		let table = table.into();
+		self.connection.execute(&format!(r#"
+			CREATE TABLE IF NOT EXISTS {} (
+				id {} PRIMARY KEY,
+				data TEXT NOT NULL
+			)
+		"#, table, I::sql_type()), NO_PARAMS)
+			.map(move |_| KeyTable(Table {
+				id: "id".into(),
+				id_type: PhantomData::default(),
+				data: "data".into(),
+				name: table,
+			}))
 	}
 }
 impl AsRef<SqliteConnection> for Connection {

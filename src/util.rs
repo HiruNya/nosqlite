@@ -1,5 +1,7 @@
 //! A module for utility structs that don't do much on their own
 
+use rusqlite::types::{FromSql, ToSql};
+
 /// A struct that represents AND.
 pub struct And<A, B> {
 	/// The first struct to be used.
@@ -95,3 +97,27 @@ impl<T> std::ops::Not for SortOrder<T> {
 		}
 	}
 }
+
+/// This trait means that the type can be used as a SQL type.
+pub trait SqlType: FromSql + ToSql {
+	/// What this type is in SQL as a `&str`.
+	///
+	/// e.g. an i64 in SQL is `INTEGER`.
+	fn sql_type() -> &'static str;
+}
+
+macro_rules! impl_sqltype {
+    ($typ:ty, $sql:literal) => {
+        impl SqlType for $typ {
+            fn sql_type() -> &'static str { $sql }
+        }
+    };
+}
+impl_sqltype!(i64, "INTEGER");
+impl_sqltype!(i32, "INTEGER");
+impl_sqltype!(i16, "INTEGER");
+impl_sqltype!(i8, "INTEGER");
+impl_sqltype!(u32, "INTEGER");
+impl_sqltype!(u16, "INTEGER");
+impl_sqltype!(u8, "INTEGER");
+impl_sqltype!(String, "TEXT");

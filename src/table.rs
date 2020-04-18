@@ -77,6 +77,8 @@ impl<I: FromSql> Table<I> {
 	/// This can be used to give a custom name and type of the id and data columns.
 	///
 	/// Generally using [`Connection::table`] is recommended instead of this.
+	///
+	/// [`Connection::table`]: struct.Connection.html#method.table
 	pub fn unchecked<K: FromSql, T: Into<String>>(id: T, data: T, name: T) -> Self {
 		Self {
 			id: id.into(),
@@ -198,6 +200,26 @@ impl <I: FromSql + ToSql> Table<I> {
 			&[&id],
 		).map(|_|())
 	}
+}
+
+/// A table with a key and value
+///
+/// This is similar to [`Table`] but unlike table you must specify a key when inserting.
+/// To use the methods in [`Table`], call `as_ref` on the `KeyedTable`.
+///
+/// [`Table`]: struct.Table.html
+pub struct KeyTable<K>(pub Table<K>);
+impl<K: ToSql> KeyTable<K> {
+	/// Insert an entry to the table with a given key
+	pub fn insert<T: Serialize, C: AsRef<SqliteConnection>>(&self, key: K, data: T, connection: C) -> SqliteResult<()> {
+		let table = self.as_ref();
+		connection.as_ref().prepare(&format!("INSERT INTO {} ({}, {}) VALUES (?, ?)", table.name, table.id, table.data))?
+			.execute(&[&key as &dyn ToSql, &Json(data) as &dyn ToSql])?;
+		Ok(())
+	}
+}
+impl<K> AsRef<Table<K>> for KeyTable<K> {
+	fn as_ref(&self) -> &Table<K> { &self.0 }
 }
 
 /// Represents an operation to get a JSON object using its id key.
