@@ -59,6 +59,22 @@ impl Connection {
 		Ok(Self { connection: SqliteConnection::open_in_memory()? })
 	}
 
+	/// Build a connection from a rusqlite connection.
+	///
+	/// # Example
+	///
+	/// ```rust
+	/// use nosqlite::Connection;
+	/// use rusqlite::Connection as SqliteConnection;
+	/// let rsql = SqliteConnection::open_in_memory()?;
+	///
+	/// let connection = Connection::from_rusqlite(rsql);
+	/// # Ok::<(), rusqlite::Error>(())
+	/// ```
+	pub fn from_rusqlite(connection: SqliteConnection) -> Self {
+		Self { connection }
+	}
+
 	/// Gets a table in the database using its name.
 	///
 	/// Creates one if it doesn't exist.
