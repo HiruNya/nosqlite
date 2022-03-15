@@ -28,7 +28,8 @@ pub trait Key {
 	/// assert_eq!(numbers.len(), 2);
 	/// // They both should be equal to 3
 	/// assert_eq!(numbers.into_iter().any(|number| number != 3), false);
-	/// # rusqlite::Result::Ok(())
+	/// # Ok::<(), rusqlite::Error>(())
+
 	/// ```
 	fn eq<T: Serialize>(self, value: T) -> Eq<Self, String>
 		where Self: Sized {
@@ -55,7 +56,8 @@ pub trait Key {
 	/// assert_eq!(numbers.len(), 3);
 	/// // They both should be equal to 3
 	/// assert!(!numbers.into_iter().any(|number| number == 3));
-	/// # rusqlite::Result::Ok(())
+	/// # Ok::<(), rusqlite::Error>(())
+
 	/// ```
 	fn neq<T: Serialize>(self, value: T) -> Neq<Self, String>
 		where Self: Sized {
@@ -80,7 +82,8 @@ pub trait Key {
 	/// // Only 9 is bigger than 4
 	/// assert_eq!(numbers.len(), 1);
 	/// assert!(numbers[0] > 4);
-	/// # rusqlite::Result::Ok(())
+	/// # Ok::<(), rusqlite::Error>(())
+
 	/// ```
 	fn gt<T: Serialize>(self, value: T) -> Gt<Self, String>
 		where Self: Sized{
@@ -104,7 +107,8 @@ pub trait Key {
 	/// 	.filter(field("number").gte(4)).field("number", &connection)?;
 	/// assert_eq!(numbers.len(), 2);
 	/// assert!(!numbers.into_iter().any(|number| number < 4));
-	/// # rusqlite::Result::Ok(())
+	/// # Ok::<(), rusqlite::Error>(())
+
 	/// ```
 	fn gte<T: Serialize>(self, value: T) -> Gte<Self, String>
 		where Self: Sized {
@@ -128,7 +132,8 @@ pub trait Key {
 	/// 	.filter(field("number").lt(4)).field("number", &connection)?;
 	/// assert_eq!(numbers.len(), 3);
 	/// assert!(!numbers.into_iter().any(|number| number >= 4));
-	/// # rusqlite::Result::Ok(())
+	/// # Ok::<(), rusqlite::Error>(())
+
 	/// ```
 	fn lt<T: Serialize>(self, value: T) -> Gt<String, Self>
 		where Self: Sized {
@@ -152,7 +157,8 @@ pub trait Key {
 	/// 	.filter(field("number").lte(4)).field("number", &connection)?;
 	/// assert_eq!(numbers.len(), 4);
 	/// assert!(!numbers.into_iter().any(|number| number > 4));
-	/// # rusqlite::Result::Ok(())
+	/// # Ok::<(), rusqlite::Error>(())
+
 	/// ```
 	fn lte<T: Serialize>(self, value: T) -> Gte<String, Self>
 		where Self: Sized {
@@ -183,7 +189,8 @@ pub trait Key {
 	/// 	.filter(field("name").like(false, "H%runa", false)).field("name", &connection)?;
 	/// // We should only match two names
 	/// assert_eq!(names.len(), 2);
-	/// # rusqlite::Result::Ok(())
+	/// # Ok::<(), rusqlite::Error>(())
+
 	/// ```
 	fn like<S: std::fmt::Display>(self, matches_start: bool, value: S, matches_end: bool) -> Like<Self, S>
 		where Self: Sized {
@@ -210,7 +217,8 @@ pub trait Key {
 	/// assert_eq!(ids.len(), 2);
 	/// assert_eq!(ids[0], 1);
 	/// assert_eq!(ids[1], 3);
-	/// # rusqlite::Result::Ok(())
+	/// # Ok::<(), rusqlite::Error>(())
+
 	/// ```
 	fn exists(self) -> Exists<Self> where Self: Sized { Exists(self) }
 
@@ -231,7 +239,8 @@ pub trait Key {
 	/// assert_eq!(a[0], 4);
 	/// assert_eq!(a[1], 6);
 	/// assert_eq!(a[2], 8);
-	/// # rusqlite::Result::Ok(())
+	/// # Ok::<(), rusqlite::Error>(())
+
 	/// ```
 	fn ascending(self) -> SortOrder<Self> where Self: Sized { SortOrder::Ascending(self) }
 
@@ -252,7 +261,8 @@ pub trait Key {
 	/// assert_eq!(a[0], 8);
 	/// assert_eq!(a[1], 6);
 	/// assert_eq!(a[2], 4);
-	/// # rusqlite::Result::Ok(())
+	/// # Ok::<(), rusqlite::Error>(())
+
 	/// ```
 	fn descending(self) -> SortOrder<Self> where Self: Sized { SortOrder::Descending(self) }
 }
@@ -322,7 +332,8 @@ impl Key for Field {
 /// // Only 2 entries should have been queried
 /// assert_eq!(data.len(), 2);
 /// assert_eq!(data.into_iter().any(|id| id == 1), false);
-/// # rusqlite::Result::Ok(())
+/// # Ok::<(), rusqlite::Error>(())
+
 /// ```
 ///
 /// [`column`]: fn.column.html
