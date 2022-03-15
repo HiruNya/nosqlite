@@ -1,4 +1,4 @@
-use rusqlite::{Connection as SqliteConnection, NO_PARAMS, OptionalExtension, Result as SqliteResult,
+use rusqlite::{Connection as SqliteConnection, OptionalExtension, Result as SqliteResult,
 				types::{FromSql, ToSql}};
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -70,7 +70,7 @@ impl<A> Table<A> {
 				s
 			});
 		connection.as_ref().prepare(&format!("CREATE INDEX {} ON {} ({})", name, self.name, keys))?
-			.execute(NO_PARAMS).map(|_|())
+			.execute([]).map(|_|())
 	}
 }
 impl<I: FromSql> Table<I> {

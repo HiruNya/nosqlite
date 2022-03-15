@@ -65,8 +65,8 @@ impl<'a, I: FromSql, W: Filter, S: Sort> Iterator<'a, I, W, S> {
 		self.execute::<_, _, _>(
 			&format!("SELECT {}, {}", self.id_key, self.data_key),
 			|mut statement, params| {
-				Ok(statement.query_map_named(
-					&params,
+				Ok(statement.query_map(
+					&*params,
 					Entry::from_row,
 				)?.filter_map(Result::ok).collect::<Vec<_>>())
 			},
@@ -203,7 +203,7 @@ impl<'a, I: FromSql, W: Filter, S: Sort> Iterator<'a, I, W, S> {
 	{
 		let path = format_key(field);
 		let set_value = format!("{} = json_insert({},\"{}\",:value)", self.data_key, self.data_key, path);
-		connection.as_ref().execute_named(
+		connection.as_ref().execute(
 			&format!("UPDATE {} SET {} {}", self.table_key, set_value, self.make_clauses()),
 			&[(":value", &value)]
 		).map(|_|())
@@ -246,7 +246,7 @@ impl<'a, I: FromSql, W: Filter, S: Sort> Iterator<'a, I, W, S> {
 		C: AsRef<SqliteConnection>,
 	{
 		let set_value = format!("{} = json_patch({},:value)", self.data_key, self.data_key);
-		connection.as_ref().execute_named(
+		connection.as_ref().execute(
 			&format!("UPDATE {} SET {} {}", self.table_key, set_value, self.make_clauses()),
 			&[(":value", &Json(value))]
 		).map(|_|())
@@ -280,7 +280,7 @@ impl<'a, I: FromSql, W: Filter, S: Sort> Iterator<'a, I, W, S> {
 		let set_value = format!("{} = json_remove({}, '{}')", self.data_key, self.data_key, path);
 		connection.as_ref().execute(
 			&format!("UPDATE {} SET {} {}", self.table_key, set_value, self.make_clauses()),
-			rusqlite::NO_PARAMS
+            []
 		).map(|_|())
 	}
 
@@ -315,7 +315,7 @@ impl<'a, I: FromSql, W: Filter, S: Sort> Iterator<'a, I, W, S> {
 	{
 		let path = format_key(field);
 		let set_value = format!("{} = json_replace({},\"{}\",:value)", self.data_key, self.data_key, path);
-		connection.as_ref().execute_named(
+		connection.as_ref().execute(
 			&format!("UPDATE {} SET {} {}", self.table_key, set_value, self.make_clauses()),
 			&[(":value", &value)]
 		).map(|_|())
@@ -354,7 +354,7 @@ impl<'a, I: FromSql, W: Filter, S: Sort> Iterator<'a, I, W, S> {
 	{
 		let path = format_key(field);
 		let set_value = format!("{} = json_set({},\"{}\",:value)", self.data_key, self.data_key, path);
-		connection.as_ref().execute_named(
+		connection.as_ref().execute(
 			&format!("UPDATE {} SET {} {}", self.table_key, set_value, self.make_clauses()),
 			&[(":value", &value)]
 		).map(|_|())
@@ -386,7 +386,7 @@ impl<'a, I: FromSql, W: Filter, S: Sort> Iterator<'a, I, W, S> {
 	/// ```
 	pub fn delete<C: AsRef<SqliteConnection>>(&self, connection: C) -> SqliteResult<()> {
 		self.execute("DELETE",
-			|mut statement, params| statement.execute_named(&params),
+			|mut statement, params| statement.execute(&*params),
 			connection
 		).map(|_|())
 	}
@@ -580,7 +580,7 @@ where
 	F: Fn(A) -> T,
 {
 	move |mut statement, params| {
-		Ok(statement.query_map_named(&params, |row| row.get(0))?
+		Ok(statement.query_map(&*params, |row| row.get(0))?
 			.filter_map(Result::ok)
 			.map(&map)
 			.collect())

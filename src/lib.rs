@@ -6,7 +6,7 @@
 #![warn(missing_docs)]
 #![allow(clippy::tabs_in_doc_comments)]
 
-use rusqlite::{Connection as SqliteConnection, Error as SqliteError, NO_PARAMS,
+use rusqlite::{Connection as SqliteConnection, Error as SqliteError,
 				Result as SqliteResult, Row,
 				types::{FromSqlError, FromSqlResult, ToSqlOutput, Value, ValueRef}};
 use serde::{Deserialize, de::DeserializeOwned, Serialize};
@@ -78,7 +78,7 @@ impl Connection {
 				id INTEGER PRIMARY KEY,
 				data TEXT NOT NULL
 			)
-		"#, table), NO_PARAMS)
+		"#, table), [])
 			.map(move |_| Table {
 				id: "id".into(),
 				id_type: PhantomData::default(),
@@ -108,7 +108,7 @@ impl Connection {
 				id {} PRIMARY KEY,
 				data TEXT NOT NULL
 			)
-		"#, table, I::sql_type()), NO_PARAMS)
+		"#, table, I::sql_type()), [])
 			.map(move |_| KeyTable(Table {
 				id: "id".into(),
 				id_type: PhantomData::default(),
