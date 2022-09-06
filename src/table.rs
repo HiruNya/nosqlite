@@ -1,4 +1,4 @@
-use rusqlite::{Connection as SqliteConnection, NO_PARAMS, OptionalExtension, Result as SqliteResult,
+use rusqlite::{Connection as SqliteConnection, OptionalExtension, Result as SqliteResult,
 				types::{FromSql, ToSql}};
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -40,7 +40,8 @@ impl<A> Table<A> {
 	/// # let connection = Connection::in_memory()?;
 	/// # let table = connection.table("test")?;
 	/// table.index("my_index", &[field("name"), field("age")], connection)?;
-	/// # rusqlite::Result::Ok(())
+	/// # Ok::<(), rusqlite::Error>(())
+
 	/// ```
 	///
 	/// If you want to index both a field and a column then you need to cast the reference
@@ -50,7 +51,8 @@ impl<A> Table<A> {
 	/// # let connection = Connection::in_memory()?;
 	/// # let table = connection.table("test")?;
 	/// table.index("my_index", &[&field("name") as &dyn Key, &column("id") as &dyn Key], connection)?;
-	/// # rusqlite::Result::Ok(())
+	/// # Ok::<(), rusqlite::Error>(())
+
 	/// ```
 	pub fn index<S, I, T, C>(&self, name: S, keys: I, connection: C) -> SqliteResult<()>
 		where
@@ -68,7 +70,7 @@ impl<A> Table<A> {
 				s
 			});
 		connection.as_ref().prepare(&format!("CREATE INDEX {} ON {} ({})", name, self.name, keys))?
-			.execute(NO_PARAMS).map(|_|())
+			.execute([]).map(|_|())
 	}
 }
 impl<I: FromSql> Table<I> {
@@ -249,7 +251,8 @@ impl<'a, I: FromSql + ToSql> Operation<'a, I> {
 	/// table.insert(Person{ name: "Bobby".into() }, &connection)?;
 	/// let bobby: Person = table.get(2).data(&connection)?.unwrap();
 	/// assert_eq!(bobby.name, "Bobby");
-	/// # rusqlite::Result::Ok(())
+	/// # Ok::<(), rusqlite::Error>(())
+
 	/// ```
 	pub fn data<T: DeserializeOwned, C: AsRef<SqliteConnection>>(&self, connection: C) -> SqliteResult<Option<T>> {
 		connection.as_ref().query_row(
@@ -277,7 +280,8 @@ impl<'a, I: FromSql + ToSql> Operation<'a, I> {
 	/// let bobby: Entry<i64, Person> = table.get(2).entry(&connection)?.unwrap();
 	/// assert_eq!(bobby.data.name, "Bobby");
 	/// assert_eq!(bobby.id, 2);
-	/// # rusqlite::Result::Ok(())
+	/// # Ok::<(), rusqlite::Error>(())
+
 	/// ```
 	pub fn entry<T: DeserializeOwned, C: AsRef<SqliteConnection>>(&self, connection: C) -> SqliteResult<Option<Entry<I, T>>> {
 		connection.as_ref().query_row(
@@ -304,7 +308,8 @@ impl<'a, I: FromSql + ToSql> Operation<'a, I> {
 	/// table.insert(Person{ name: "Bobby".into() }, &connection)?;
 	/// let bobby_id: i64 = table.get(2).id(&connection)?.unwrap();
 	/// assert_eq!(bobby_id, 2);
-	/// # rusqlite::Result::Ok(())
+	/// # Ok::<(), rusqlite::Error>(())
+
 	/// ```
 	pub fn id<C: AsRef<SqliteConnection>>(&self, connection: C) -> SqliteResult<Option<I>> {
 		connection.as_ref().query_row(
@@ -331,7 +336,8 @@ impl<'a, I: FromSql + ToSql> Operation<'a, I> {
 	/// table.insert(Person{ name: "Bobby".into() }, &connection)?;
 	/// let bobby: String = table.get(2).field("name", &connection)?.unwrap();
 	/// assert_eq!(bobby, "Bobby");
-	/// # rusqlite::Result::Ok(())
+	/// # Ok::<(), rusqlite::Error>(())
+
 	/// ```
 	pub fn field<T: FromSql, C: AsRef<SqliteConnection>>(&self, key: &str, connection: C) -> SqliteResult<Option<T>> {
 		let key = format_key(key);
@@ -362,7 +368,8 @@ impl<'a, I: FromSql + ToSql> Operation<'a, I> {
 	/// assert_eq!(people[0].0, "Hiruna");
 	/// // This *does not* delete the entry
 	/// assert_eq!(table.iter().id(&connection)?.len(), 2);
-	/// # rusqlite::Result::Ok(())
+	/// # Ok::<(), rusqlite::Error>(())
+
 	/// ```
 	pub fn remove<C>(&self, field: &str, connection: C) -> SqliteResult<()>
 		where C: AsRef<SqliteConnection>

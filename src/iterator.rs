@@ -33,7 +33,8 @@ impl<'a, I: FromSql, W: Filter, S: Sort> Iterator<'a, I, W, S> {
 	/// # 	name: String,
 	/// # }
 	/// let people: Vec<Person> = table.iter().data(&connection)?;
-	/// # rusqlite::Result::Ok(())
+	/// # Ok::<(), rusqlite::Error>(())
+
 	/// ```
 	pub fn data<T: DeserializeOwned, C: AsRef<SqliteConnection>>(&self, connection: C) -> SqliteResult<Vec<T>> {
 		self.execute::<_, _, _>(
@@ -57,14 +58,15 @@ impl<'a, I: FromSql, W: Filter, S: Sort> Iterator<'a, I, W, S> {
 	/// # 	name: String,
 	/// # }
 	/// let people: Vec<Entry<i64, Person>> = table.iter().entry(&connection)?;
-	/// # rusqlite::Result::Ok(())
+	/// # Ok::<(), rusqlite::Error>(())
+
 	/// ```
 	pub fn entry<T: DeserializeOwned, C: AsRef<SqliteConnection>>(&self, connection: C) -> SqliteResult<Vec<Entry<I, T>>> {
 		self.execute::<_, _, _>(
 			&format!("SELECT {}, {}", self.id_key, self.data_key),
 			|mut statement, params| {
-				Ok(statement.query_map_named(
-					&params,
+				Ok(statement.query_map(
+					&*params,
 					Entry::from_row,
 				)?.filter_map(Result::ok).collect::<Vec<_>>())
 			},
@@ -86,7 +88,8 @@ impl<'a, I: FromSql, W: Filter, S: Sort> Iterator<'a, I, W, S> {
 	/// # 	name: String,
 	/// # }
 	/// let people: Vec<i64> = table.iter().id(&connection)?;
-	/// # rusqlite::Result::Ok(())
+	/// # Ok::<(), rusqlite::Error>(())
+
 	/// ```
 	pub fn id<C: AsRef<SqliteConnection>>(&self, connection: C) -> SqliteResult<Vec<I>> {
 		self.execute::<_, _, _>(
@@ -114,7 +117,8 @@ impl<'a, I: FromSql, W: Filter, S: Sort> Iterator<'a, I, W, S> {
 	/// table.insert(Person{ first_name: "Hiruna".into(), last_name: "Jayamanne".into(), age: 19 }, &connection)?;
 	/// let people: Vec<String> = table.iter().field("first_name", &connection)?;
 	/// assert_eq!(people[0], "Hiruna");
-	/// # rusqlite::Result::Ok(())
+	/// # Ok::<(), rusqlite::Error>(())
+
 	/// ```
 	pub fn field<T: FromSql, C: AsRef<SqliteConnection>>(&self, field_: &str, connection: C) -> SqliteResult<Vec<T>> {
 		self.execute::<_, _, _>(
@@ -142,7 +146,8 @@ impl<'a, I: FromSql, W: Filter, S: Sort> Iterator<'a, I, W, S> {
 	/// table.insert(Person{ first_name: "Hiruna".into(), last_name: "Jayamanne".into(), age: 19 }, &connection)?;
 	/// let people: Vec<(String, String)> = table.iter().fields(&["first_name", "last_name"], &connection)?;
 	/// assert_eq!(people[0], ("Hiruna".into(), "Jayamanne".into()));
-	/// # rusqlite::Result::Ok(())
+	/// # Ok::<(), rusqlite::Error>(())
+
 	/// ```
 	pub fn fields<T, F, C, A>(&self, fields: F, connection: C) -> SqliteResult<Vec<T>>
 	where
@@ -189,7 +194,7 @@ impl<'a, I: FromSql, W: Filter, S: Sort> Iterator<'a, I, W, S> {
 	/// let people: Vec<(String, u8)> = table.iter().fields(&["first_name", "age"], &connection)?;
 	/// assert_eq!(people[0], ("Hiruna".into(), 19));
 	/// assert_eq!(people[1], ("Bob".into(), 13)); // Only Bob was changed
-	/// # rusqlite::Result::Ok(())
+	/// # Ok::<(), rusqlite::Error>(())
 	/// ```
 	pub fn insert<T, C>(&self, field: &str, value: T, connection: C) -> SqliteResult<()>
 	where
@@ -198,7 +203,7 @@ impl<'a, I: FromSql, W: Filter, S: Sort> Iterator<'a, I, W, S> {
 	{
 		let path = format_key(field);
 		let set_value = format!("{} = json_insert({},\"{}\",:value)", self.data_key, self.data_key, path);
-		connection.as_ref().execute_named(
+		connection.as_ref().execute(
 			&format!("UPDATE {} SET {} {}", self.table_key, set_value, self.make_clauses()),
 			&[(":value", &value)]
 		).map(|_|())
@@ -232,7 +237,8 @@ impl<'a, I: FromSql, W: Filter, S: Sort> Iterator<'a, I, W, S> {
 	/// 	// `grades` field was overwritten and set to an array of one element
 	/// 	assert_eq!(person.1, [9])
 	/// }
-	/// # rusqlite::Result::Ok(())
+	/// # Ok::<(), rusqlite::Error>(())
+
 	/// ```
 	pub fn patch<T, C>(&self, value: T, connection: C) -> SqliteResult<()>
 	where
@@ -240,7 +246,7 @@ impl<'a, I: FromSql, W: Filter, S: Sort> Iterator<'a, I, W, S> {
 		C: AsRef<SqliteConnection>,
 	{
 		let set_value = format!("{} = json_patch({},:value)", self.data_key, self.data_key);
-		connection.as_ref().execute_named(
+		connection.as_ref().execute(
 			&format!("UPDATE {} SET {} {}", self.table_key, set_value, self.make_clauses()),
 			&[(":value", &Json(value))]
 		).map(|_|())
@@ -264,7 +270,8 @@ impl<'a, I: FromSql, W: Filter, S: Sort> Iterator<'a, I, W, S> {
 	/// assert_eq!(people.len(), 0);
 	/// // This *does not* delete the entries
 	/// assert_eq!(table.iter().id(&connection)?.len(), 2);
-	/// # rusqlite::Result::Ok(())
+	/// # Ok::<(), rusqlite::Error>(())
+
 	/// ```
 	pub fn remove<C>(&self, field: &str, connection: C) -> SqliteResult<()>
 	where C: AsRef<SqliteConnection>
@@ -273,7 +280,7 @@ impl<'a, I: FromSql, W: Filter, S: Sort> Iterator<'a, I, W, S> {
 		let set_value = format!("{} = json_remove({}, '{}')", self.data_key, self.data_key, path);
 		connection.as_ref().execute(
 			&format!("UPDATE {} SET {} {}", self.table_key, set_value, self.make_clauses()),
-			rusqlite::NO_PARAMS
+            []
 		).map(|_|())
 	}
 
@@ -298,7 +305,8 @@ impl<'a, I: FromSql, W: Filter, S: Sort> Iterator<'a, I, W, S> {
 	/// // Both objects had their fields set
 	/// assert_eq!(people.len(), 1);
 	/// assert_eq!(people[0], 13);
-	/// # rusqlite::Result::Ok(())
+	/// # Ok::<(), rusqlite::Error>(())
+
 	/// ```
 	pub fn replace<T, C>(&self, field: &str, value: T, connection: C) -> SqliteResult<()>
 	where
@@ -307,7 +315,7 @@ impl<'a, I: FromSql, W: Filter, S: Sort> Iterator<'a, I, W, S> {
 	{
 		let path = format_key(field);
 		let set_value = format!("{} = json_replace({},\"{}\",:value)", self.data_key, self.data_key, path);
-		connection.as_ref().execute_named(
+		connection.as_ref().execute(
 			&format!("UPDATE {} SET {} {}", self.table_key, set_value, self.make_clauses()),
 			&[(":value", &value)]
 		).map(|_|())
@@ -337,7 +345,7 @@ impl<'a, I: FromSql, W: Filter, S: Sort> Iterator<'a, I, W, S> {
 	/// // Both objects had their fields set
 	/// assert_eq!(people[0], 13);
 	/// assert_eq!(people[1], 13);
-	/// # rusqlite::Result::Ok(())
+	/// # Ok::<(), rusqlite::Error>(())
 	/// ```
 	pub fn set<T, C>(&self, field: &str, value: T, connection: C) -> SqliteResult<()>
 	where
@@ -346,7 +354,7 @@ impl<'a, I: FromSql, W: Filter, S: Sort> Iterator<'a, I, W, S> {
 	{
 		let path = format_key(field);
 		let set_value = format!("{} = json_set({},\"{}\",:value)", self.data_key, self.data_key, path);
-		connection.as_ref().execute_named(
+		connection.as_ref().execute(
 			&format!("UPDATE {} SET {} {}", self.table_key, set_value, self.make_clauses()),
 			&[(":value", &value)]
 		).map(|_|())
@@ -374,11 +382,11 @@ impl<'a, I: FromSql, W: Filter, S: Sort> Iterator<'a, I, W, S> {
 	/// // There should only be 2 entries left.
 	/// let length = table.iter().id(&connection)?.len();
 	/// assert_eq!(length, 2);
-	/// # rusqlite::Result::Ok(())
+	/// # Ok::<(), rusqlite::Error>(())
 	/// ```
 	pub fn delete<C: AsRef<SqliteConnection>>(&self, connection: C) -> SqliteResult<()> {
 		self.execute("DELETE",
-			|mut statement, params| statement.execute_named(&params),
+			|mut statement, params| statement.execute(&*params),
 			connection
 		).map(|_|())
 	}
@@ -406,7 +414,7 @@ impl<'a, I: FromSql, W: Filter, S: Sort> Iterator<'a, I, W, S> {
 	/// 	// They should be 18+ years old
 	/// 	assert!(person.1 >= 18);
 	/// }
-	/// # rusqlite::Result::Ok(())
+	/// # Ok::<(), rusqlite::Error>(())
 	/// ```
 	pub fn filter<A: Filter>(self, filter: A) -> Iterator<'a, I, A, S> {
 		Iterator {
@@ -440,7 +448,7 @@ impl<'a, I: FromSql, W: Filter, S: Sort> Iterator<'a, I, W, S> {
 	/// assert_eq!(data[1], 3);
 	/// assert_eq!(data[2], 6);
 	/// assert_eq!(data[3], 8);
-	/// # rusqlite::Result::Ok(())
+	/// # Ok::<(), rusqlite::Error>(())
 	/// ```
 	///
 	/// ```
@@ -460,7 +468,7 @@ impl<'a, I: FromSql, W: Filter, S: Sort> Iterator<'a, I, W, S> {
 	/// assert!(data[1].0 == 2 && data[1].1 == 2);
 	/// assert!(data[2].0 == 2 && data[2].1 == 8);
 	/// assert!(data[3].0 == 8 && data[3].1 == 4);
-	/// # rusqlite::Result::Ok(())
+	/// # Ok::<(), rusqlite::Error>(())
 	/// ```
 	pub fn sort<A: Sort>(self, key: A) -> Iterator<'a, I, W, A> {
 		Iterator {
@@ -496,7 +504,7 @@ impl<'a, I: FromSql, W: Filter, S: Sort> Iterator<'a, I, W, S> {
 	/// assert_eq!(people.len(), 2);
 	/// assert_eq!(people[0], "Callum");
 	/// assert_eq!(people[1], "John");
-	/// # rusqlite::Result::Ok(())
+	/// # Ok::<(), rusqlite::Error>(())
 	/// ```
 	pub fn skip(mut self, n: u32) -> Self {
 		self.offset = Some(n);
@@ -524,7 +532,7 @@ impl<'a, I: FromSql, W: Filter, S: Sort> Iterator<'a, I, W, S> {
 	/// assert_eq!(people.len(), 2);
 	/// assert_eq!(people[0], "Hiruna");
 	/// assert_eq!(people[1], "Bob");
-	/// # rusqlite::Result::Ok(())
+	/// # Ok::<(), rusqlite::Error>(())
 	/// ```
 	pub fn take(mut self, n: u32) -> Self {
 		self.limit = Some(n);
@@ -572,7 +580,7 @@ where
 	F: Fn(A) -> T,
 {
 	move |mut statement, params| {
-		Ok(statement.query_map_named(&params, |row| row.get(0))?
+		Ok(statement.query_map(&*params, |row| row.get(0))?
 			.filter_map(Result::ok)
 			.map(&map)
 			.collect())

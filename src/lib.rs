@@ -6,7 +6,7 @@
 #![warn(missing_docs)]
 #![allow(clippy::tabs_in_doc_comments)]
 
-use rusqlite::{Connection as SqliteConnection, Error as SqliteError, NO_PARAMS,
+use rusqlite::{Connection as SqliteConnection, Error as SqliteError,
 				Result as SqliteResult, Row,
 				types::{FromSqlError, FromSqlResult, ToSqlOutput, Value, ValueRef}};
 use serde::{Deserialize, de::DeserializeOwned, Serialize};
@@ -59,6 +59,22 @@ impl Connection {
 		Ok(Self { connection: SqliteConnection::open_in_memory()? })
 	}
 
+	/// Build a connection from a rusqlite connection.
+	///
+	/// # Example
+	///
+	/// ```rust
+	/// use nosqlite::Connection;
+	/// use rusqlite::Connection as SqliteConnection;
+	/// let rsql = SqliteConnection::open_in_memory()?;
+	///
+	/// let connection = Connection::from_rusqlite(rsql);
+	/// # Ok::<(), rusqlite::Error>(())
+	/// ```
+	pub fn from_rusqlite(connection: SqliteConnection) -> Self {
+		Self { connection }
+	}
+
 	/// Gets a table in the database using its name.
 	///
 	/// Creates one if it doesn't exist.
@@ -78,7 +94,7 @@ impl Connection {
 				id INTEGER PRIMARY KEY,
 				data TEXT NOT NULL
 			)
-		"#, table), NO_PARAMS)
+		"#, table), [])
 			.map(move |_| Table {
 				id: "id".into(),
 				id_type: PhantomData::default(),
@@ -98,7 +114,8 @@ impl Connection {
 	/// let table: KeyTable<String> = connection.key_table("test".to_string())?;
 	/// table.insert("Point".into(), json!({ "x": 3, "y": 10 }), &connection)?;
 	/// assert_eq!(table.as_ref().get("Point".into()).field("x", &connection)?, Some(3));
-	/// # rusqlite::Result::Ok(())
+	/// # Ok::<(), rusqlite::Error>(())
+
 	/// ```
 	pub fn key_table<I: SqlType, T: Into<String>>(&self, table: T) -> SqliteResult<KeyTable<I>> {
 		let table = table.into();
@@ -107,7 +124,7 @@ impl Connection {
 				id {} PRIMARY KEY,
 				data TEXT NOT NULL
 			)
-		"#, table, I::sql_type()), NO_PARAMS)
+		"#, table, I::sql_type()), [])
 			.map(move |_| KeyTable(Table {
 				id: "id".into(),
 				id_type: PhantomData::default(),
@@ -155,7 +172,8 @@ pub trait Filter {
 	/// let numbers: Vec<u8> = table.iter().filter(field("").eq(1).not()).data(&connection)?;
 	/// assert_eq!(numbers.len(), 2);
 	/// assert!(!numbers.into_iter().any(|number| number == 1));
-	/// # rusqlite::Result::Ok(())
+	/// # Ok::<(), rusqlite::Error>(())
+
 	/// ```
 	fn not(self) -> Not<Self> where Self: Sized { Not(self) }
 }
